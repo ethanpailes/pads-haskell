@@ -104,8 +104,43 @@ Library
                        Language.Pads.MetaData, 
                        Language.Pads.PadsParser,
                        Language.Pads.PadsPrinter,
-                       Language.Pads.LazyList 
-  
+                       Language.Pads.LazyList,
+                       Language.Pads.LazyOpt
+
   -- Extra tools (e.g. alex, hsc2hs, ...) needed to build the source.
   -- Build-tools:         
+
+Test-Suite test-pads
+  type:       exitcode-stdio-1.0
+  main-is:    Spec.hs
+  hs-source-dirs:      test, .
+  Other-modules:
+    Examples.Binary,
+    Examples.First,
+    Examples.VCard,
+    Language.Pads.BaseTypes,
+    Language.Pads.CodeGen,
+    Language.Pads.CoreBaseTypes,
+    Language.Pads.Errors,
+    Language.Pads.Generic,
+    Language.Pads.Library.BigEndian,
+    Language.Pads.Library.BinaryUtilities,
+    Language.Pads.Library.LittleEndian,
+    Language.Pads.Library.Native,
+    Language.Pads.MetaData,
+    Language.Pads.PadsParser,
+    Language.Pads.PadsPrinter,
+    Language.Pads.Padsc,
+    Language.Pads.Parser,
+    Language.Pads.Pretty,
+    Language.Pads.Quote,
+    Language.Pads.RegExp,
+    Language.Pads.Source,
+    Language.Pads.Syntax,
+    Language.Pads.TH,
+    Language.Pads.Testing,
+    Language.Pads.LazyOpt,
+
+    -- Test Modules
+    LazyOptTest
   
