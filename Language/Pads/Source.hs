@@ -158,10 +158,11 @@ setRecordDiscipline r s =
       s'' = s'{disc = r}
   in ((),getNextLine s'')
 
-{- Merge current record back on to rest according to current record discipline.
+{- |
+   Merge current record back on to rest according to current record discipline.
    Resulting source will be in NoDiscipline state.
    Noop if called at EOF.
--}
+ -}
 unputCurrentLine :: Source -> Source
 unputCurrentLine (s @ Source {current, rest, loc, disc, eorAtEOF}) = 
       if isEOF s then s
