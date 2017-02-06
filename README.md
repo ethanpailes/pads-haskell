@@ -23,4 +23,12 @@ To build `pads-haskell`:
 $ stack build
 ```
 
+## Test
+
+To test `pads-haskell`:
+
+```bash
+$ stack test
+```
+
 [1]: https://www.stackage.org/

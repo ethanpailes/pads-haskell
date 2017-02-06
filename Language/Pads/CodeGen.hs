@@ -22,7 +22,8 @@ import qualified Language.Pads.Errors as E
 import qualified Language.Pads.Source as S
 import Language.Pads.PadsPrinter
 
-import Language.Haskell.TH 
+import Language.Haskell.TH
+import qualified Language.Haskell.TH.Syntax as THS
 import Language.Haskell.Syntax
 
 import Data.Data
@@ -30,6 +31,7 @@ import Data.Char
 import qualified Data.Map as M
 import qualified Data.List as List
 import qualified Data.Maybe as Maybe
+import Language.Pads.LazyOpt (SkipStrategy(..), ssPadsDecl)
 import Control.Monad
 
 import Debug.Trace
@@ -37,6 +39,13 @@ import Debug.Trace
 type BString = S.RawStream
 
 type Derivation = Dec -> Q [Dec]
+
+data PadsCodeGenMetadata = PadsCodeGenMetadata {
+       pcg_METADATA_skipStrategy :: PadsDeclAnn SkipStrategy
+    }
+  deriving(Eq, Show)
+padsCGMetadataPrefix :: String
+padsCGMetadataPrefix = "pads_CG_METADATA"
 
 make_pads_declarations :: [PadsDecl] -> Q [Dec]
 make_pads_declarations = make_pads_declarations' (const $ return [])
@@ -51,43 +60,57 @@ make_pads_declarations' derivation ds = fmap concat (mapM (genPadsDecl derivatio
 
 genPadsDecl :: Derivation -> PadsDecl -> Q [Dec]
 
-genPadsDecl derivation (PadsDeclType name args pat padsTy) = do
+genPadsDecl derivation decl@(PadsDeclType name args pat padsTy) = do
   let typeDecs = mkTyRepMDDecl name args padsTy
   parseM  <- genPadsParseM name args pat padsTy
   parseS  <- genPadsParseS name args pat
   printFL <- genPadsPrintFL name args pat padsTy
   def <- genPadsDef name args pat padsTy
+  meta <- genPadsDeclCodeGenMetadata name decl
   let sigs = mkPadsSignature name args (fmap patType pat)
-  return $ typeDecs ++ parseM ++ parseS ++ printFL ++ def ++ sigs
+  return $ typeDecs ++ parseM ++ parseS ++ printFL ++ def ++ sigs ++ meta
 
-genPadsDecl derivation (PadsDeclData name args pat padsData derives) = do
+genPadsDecl derivation decl@(PadsDeclData name args pat padsData derives) = do
   dataDecs <- mkDataRepMDDecl derivation name args padsData derives
   parseM <- genPadsDataParseM name args pat padsData 
   parseS <- genPadsParseS name args pat
   printFL <- genPadsDataPrintFL name args pat padsData
   def <- genPadsDataDef name args pat padsData
+  meta <- genPadsDeclCodeGenMetadata name decl
   let instances = mkPadsInstance name args (fmap patType pat)
   let sigs = mkPadsSignature name args (fmap patType pat)
   return $ dataDecs ++ parseM ++ parseS ++ printFL ++ def ++ instances ++ sigs
+           ++ meta
 
-genPadsDecl derivation (PadsDeclNew name args pat branch derives) = do
+genPadsDecl derivation decl@(PadsDeclNew name args pat branch derives) = do
   dataDecs <- mkNewRepMDDecl derivation name args branch derives
   parseM <- genPadsNewParseM name args pat branch 
   parseS <- genPadsParseS name args pat
   printFL <- genPadsNewPrintFL name args pat branch
   def <- genPadsNewDef name args pat branch
+  meta <- genPadsDeclCodeGenMetadata name decl
   let instances = mkPadsInstance name args (fmap patType pat)
   let sigs = mkPadsSignature name args (fmap patType pat)
   return $ dataDecs ++ parseM ++ parseS ++ printFL ++ def ++ instances ++ sigs
+           ++ meta
 
-genPadsDecl derivation (PadsDeclObtain name args padsTy exp) = do
+genPadsDecl derivation decl@(PadsDeclObtain name args padsTy exp) = do
   let mdDec = mkObtainMDDecl name args padsTy
   parseM  <- genPadsObtainParseM name args padsTy exp
   parseS  <- genPadsParseS name args Nothing
   printFL <- genPadsObtainPrintFL name args padsTy exp
   def <- genPadsObtainDef name args padsTy exp
+  meta <- genPadsDeclCodeGenMetadata name decl
   let sigs = mkPadsSignature name args Nothing
-  return $ mdDec ++ parseM ++ parseS ++ printFL ++ def ++ sigs
+  return $ mdDec ++ parseM ++ parseS ++ printFL ++ def ++ sigs ++ meta
+
+genPadsDeclCodeGenMetadata :: String -> PadsDecl -> Q [Dec]
+genPadsDeclCodeGenMetadata name dec = do
+  let mdName = mkName $ padsCGMetadataPrefix ++ name
+  e <- [| PadsCodeGenMetadata {
+                pcg_METADATA_skipStrategy = $(THS.lift . ssPadsDecl $ dec)
+       } |]
+  return . return $ ValD (VarP mdName) (NormalB e) []
 
 patType :: Pat -> Type
 patType p = case p of

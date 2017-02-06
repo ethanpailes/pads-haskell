@@ -95,7 +95,8 @@ Library
                     HUnit >= 1.2.5.2,
                     byteorder >= 1.0.4,
                     old-locale >= 1.0.0.6,
-                    time >= 1.4.2
+                    time >= 1.4.2,
+                    th-lift >= 0.7
 
   -- Modules not exported by this package.
   Other-modules:       Language.Pads.CodeGen,
@@ -104,8 +105,61 @@ Library
                        Language.Pads.MetaData, 
                        Language.Pads.PadsParser,
                        Language.Pads.PadsPrinter,
-                       Language.Pads.LazyList 
-  
+                       Language.Pads.LazyList,
+                       Language.Pads.LazyOpt
+
   -- Extra tools (e.g. alex, hsc2hs, ...) needed to build the source.
   -- Build-tools:         
+
+Test-Suite test-pads
+  type:       exitcode-stdio-1.0
+  main-is:    Spec.hs
+  hs-source-dirs:      test, .
+  Other-modules:
+    Examples.Binary,
+    Examples.First,
+    Examples.VCard,
+    Language.Pads.BaseTypes,
+    Language.Pads.CodeGen,
+    Language.Pads.CoreBaseTypes,
+    Language.Pads.Errors,
+    Language.Pads.Generic,
+    Language.Pads.Library.BigEndian,
+    Language.Pads.Library.BinaryUtilities,
+    Language.Pads.Library.LittleEndian,
+    Language.Pads.Library.Native,
+    Language.Pads.MetaData,
+    Language.Pads.PadsParser,
+    Language.Pads.PadsPrinter,
+    Language.Pads.Padsc,
+    Language.Pads.Parser,
+    Language.Pads.Pretty,
+    Language.Pads.Quote,
+    Language.Pads.RegExp,
+    Language.Pads.Source,
+    Language.Pads.Syntax,
+    Language.Pads.TH,
+    Language.Pads.Testing,
+    Language.Pads.LazyOpt,
+
+    -- Test Modules
+    LazyOptTest
+
+  -- Packages needed in order to build this package.
+  build-depends:    base >= 4.7 && < 5,
+                    syb >= 0.4,
+                    containers >= 0.5.5.1,
+                    template-haskell >=2.9,
+                    Glob >= 0.7.5,
+                    regex-posix >= 0.95.2,
+                    bytestring >= 0.10.4,
+                    haskell-src >=1.0.1.6,
+                    haskell-src-meta >= 0.4,
+                    parsec >= 3.1.0,
+                    mainland-pretty >= 0.1.0.2,
+                    HUnit >= 1.2.5.2,
+                    byteorder >= 1.0.4,
+                    old-locale >= 1.0.0.6,
+                    time >= 1.4.2,
+                    th-lift >= 0.7
   
