@@ -90,7 +90,7 @@ data PadsDecl = PadsDeclType   String [String] (Maybe Pat) PadsTy
 data PadsTyAnn a =
     PConstrainAnn a Pat (PadsTyAnn a) Exp
   | PTransformAnn a (PadsTyAnn a) (PadsTyAnn a) Exp
-  | PListAnn a (PadsTyAnn a) (Maybe (PadsTyAnn a)) (Maybe TermCond)
+  | PListAnn a (PadsTyAnn a) (Maybe (PadsTyAnn a)) (Maybe (TermCondAnn a))
   | PPartitionAnn a (PadsTyAnn a) Exp
   | PValueAnn a Exp (PadsTyAnn a)
   | PAppAnn a [(PadsTyAnn a)] (Maybe Exp)
@@ -104,7 +104,7 @@ data PadsTyAnn a =
 unPadsTyAnn :: PadsTyAnn a -> (a, PadsTy)
 unPadsTyAnn (PConstrainAnn ann x0 x1 x2) = (ann, PConstrain x0 (viewC x1) x2)
 unPadsTyAnn (PTransformAnn ann x0 x1 x2) = (ann, PTransform (viewC x0) (viewC x1) x2)
-unPadsTyAnn (PListAnn ann x0 x1 x2) = (ann, PList (viewC x0) (viewC <$> x1) x2)
+unPadsTyAnn (PListAnn ann x0 x1 x2) = (ann, PList (viewC x0) (viewC <$> x1) (viewC <$> x2))
 unPadsTyAnn (PPartitionAnn ann x0 x1) = (ann, PPartition (viewC x0) x1)
 unPadsTyAnn (PValueAnn ann x0 x1) = (ann, PValue x0 (viewC x1))
 unPadsTyAnn (PAppAnn ann x0 x1) = (ann, PApp (map viewC x0) x1)
@@ -126,7 +126,7 @@ annPadsTy ann (PConstrain x0 x1 x2) =
 annPadsTy ann (PTransform x0 x1 x2) =
   PTransformAnn ann (annPadsTy ann x0) (annPadsTy ann x1) x2
 annPadsTy ann (PList x0 x1 x2) =
-  PListAnn ann (annPadsTy ann x0) (annPadsTy ann <$> x1) x2
+  PListAnn ann (annPadsTy ann x0) (annPadsTy ann <$> x1) (annTermCond ann <$> x2)
 annPadsTy ann (PPartition x0 x1) =
   PPartitionAnn ann (annPadsTy ann x0) x1
 annPadsTy ann (PValue x0 x1) = PValueAnn ann x0 (annPadsTy ann x1)
@@ -142,7 +142,7 @@ data PadsTy = PConstrain Pat PadsTy Exp
             | PPartition PadsTy Exp
             | PValue Exp PadsTy
             | PApp [PadsTy] (Maybe Exp)
-            | PTuple [PadsTy] 
+            | PTuple [PadsTy]
             | PExpression Exp
             | PTycon QString
             | PTyvar String

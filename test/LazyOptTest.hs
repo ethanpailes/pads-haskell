@@ -13,27 +13,27 @@ import Test.HUnit.Base
 
 test :: IO Counts
 test = runTestTT $ TestList [
-    fixedTestTy "fixedWidthString" fixedWidthString
-  , fixedTestTy "fixedLengthArray" fixedLengthArray
-  , fixedTestTy "mulitLetterLiteral" multiLetterLiteral
+    fixedTestTy "fixedWidthString" fixedWidthString isFixedWidth
+  , fixedTestTy "fixedLengthArray" fixedLengthArray isFixedWidth
+  , fixedTestTy "mulitLetterLiteral" multiLetterLiteral isFixedWidth
+  , fixedTestTy "fixedTuple" fixedTuple isFixedWidth
+  , fixedTestTy "nonFixedTuple" nonFixedTuple ((==SSSeq [SSFixed 3, SSNone, SSFixed 45]) . getAnn)
   , TestLabel "fixedPrims" $
         TestList (map (TestCase . assert . isFixedWidth . ssPadsTy) fixedPrims)
-  , fixedTestDecl "typeAlias" typeAlias
-  , fixedTestData "singleBranchDataDecl" singleBranchDataDecl
-  , fixedTestData "twoBranchSameWidth" twoBranchSameWidth
-  , TestLabel "twoBranchDifferentWidth" .
-        TestCase . assert . not . isFixedWidth
-        . ssPadsData $ twoBranchDifferentWidth
+  , fixedTestDecl "typeAlias" typeAlias isFixedWidth
+  , fixedTestData "singleBranchDataDecl" singleBranchDataDecl isFixedWidth
+  , fixedTestData "twoBranchSameWidth" twoBranchSameWidth isFixedWidth
+  , fixedTestData "twoBranchDifferentWidth" twoBranchDifferentWidth (not . isFixedWidth)
   ]
 
-fixedTestTy :: String -> PadsTy -> Test
-fixedTestTy l = TestLabel l . TestCase . assert . isFixedWidth . ssPadsTy
+fixedTestTy :: String -> PadsTy -> (PadsTyAnn SkipStrategy -> Bool) -> Test
+fixedTestTy l ty p = TestLabel l . TestCase . assert . p . ssPadsTy $ ty
 
-fixedTestDecl :: String -> PadsDecl -> Test
-fixedTestDecl l = TestLabel l . TestCase . assert . isFixedWidth . ssPadsDecl
+fixedTestDecl :: String -> PadsDecl -> (PadsDeclAnn SkipStrategy -> Bool) -> Test
+fixedTestDecl l ty p = TestLabel l . TestCase . assert . p . ssPadsDecl $ ty
 
-fixedTestData :: String -> PadsData -> Test
-fixedTestData l = TestLabel l . TestCase . assert . isFixedWidth . ssPadsData
+fixedTestData :: String -> PadsData -> (PadsDataAnn SkipStrategy -> Bool) -> Test
+fixedTestData l ty p = TestLabel l . TestCase . assert . p . ssPadsData $ ty
 
 --
 -- GHCI testing values
@@ -58,6 +58,16 @@ multiLetterLiteral = mll
 
 fixedPrims :: [PadsTy]
 fixedPrims = map (\c -> PTycon [c]) ["Char", "Digit"]
+
+fixedTuple :: PadsTy
+fixedTuple = ty
+  where Right [PadsDeclType _ _ _ ty] =
+          testParse "type F = ('abc', 'bar', StringFW 45)"
+
+nonFixedTuple :: PadsTy
+nonFixedTuple = ty
+  where Right [PadsDeclType _ _ _ ty] =
+          testParse "type F = ('abc', StringC ',', StringFW 45)"
 
 -- Declarations
 

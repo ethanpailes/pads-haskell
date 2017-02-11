@@ -29,6 +29,13 @@ instance Show SkipStrategy where
   show (SSFun _) = "(SSFun [...])"
   show SSNone = "SSNone"
 
+-- Not true equality, but still useful
+instance Eq SkipStrategy where
+  SSFixed n1 == SSFixed n2 = n1 == n2
+  SSSeq s1 == SSSeq s2 = s1 == s2
+  SSNone == SSNone = True
+  _ == _ = False
+
 -- Pads Types
 --
 
@@ -50,11 +57,34 @@ ssPadsTy (PList (ssPadsTy -> memberTy)
                   ((ssPadsTy <$>) -> sepTy)
                   l@(Just (LLen (evalIntExp -> Just len)))) =
   PListAnn (maybe SSNone SSFixed byteLength)
-    memberTy sepTy l
+    memberTy sepTy (ann SSNone <$> l)
   where byteLength = do
           let (SSFixed n) = getAnn memberTy
           let (SSFixed m) = fromMaybe (SSFixed 0) $ getAnn <$> sepTy
           Just $ (len * n) + ((len - 1) * m)
+
+-- Tuples
+ssPadsTy (PTuple (map ssPadsTy -> taus)) =
+  let skipStrats = map getAnn taus
+      width = foldr (\ss acc -> case ss of
+                                  (SSFixed n) -> (liftM2 (+)) acc (return n)
+                                  _ -> Nothing)
+                    (Just 0)
+                    skipStrats
+   in PTupleAnn
+        (maybe (if (all (==SSNone) skipStrats) then SSNone else SSSeq skipStrats)
+                  SSFixed width)
+        taus
+
+
+-- Cases that I'm not so sure about.
+-- For some of these I could not convince the parser to emit good values
+-- so, they are untested
+ssPadsTy (PTransform (ssPadsTy -> tau1) (ssPadsTy -> tau2) e) =
+  PTransformAnn (getAnn tau1) tau1 tau2 e
+ssPadsTy (PPartition (ssPadsTy -> tau) e) =
+  PPartitionAnn (getAnn tau) tau e
+ssPadsTy (PValue e (ssPadsTy -> tau)) = PValueAnn (SSFixed 0) e tau
 
 -- default
 ssPadsTy t = annPadsTy SSNone t
