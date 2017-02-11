@@ -143,4 +143,21 @@ Test-Suite test-pads
 
     -- Test Modules
     LazyOptTest
+
+  -- Packages needed in order to build this package.
+  build-depends:    base >= 4.7 && < 5,
+                    syb >= 0.4,
+                    containers >= 0.5.5.1,
+                    template-haskell >=2.9,
+                    Glob >= 0.7.5,
+                    regex-posix >= 0.95.2,
+                    bytestring >= 0.10.4,
+                    haskell-src >=1.0.1.6,
+                    haskell-src-meta >= 0.4,
+                    parsec >= 3.1.0,
+                    mainland-pretty >= 0.1.0.2,
+                    HUnit >= 1.2.5.2,
+                    byteorder >= 1.0.4,
+                    old-locale >= 1.0.0.6,
+                    time >= 1.4.2
   

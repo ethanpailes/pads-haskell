@@ -19,8 +19,15 @@ import Language.Pads.RegExp
 -- | An AST annotation to indicate the best way to skip over the given
 --   type without actually parsing it for information.
 data SkipStrategy = SSFixed Int
+                  | SSSeq [SkipStrategy]
+                  | SSFun ([SkipStrategy] -> SkipStrategy)
                   | SSNone
-                     deriving(Show)
+
+instance Show SkipStrategy where
+  show (SSFixed i) = "(SSFixed " ++ show i ++ ")"
+  show (SSSeq ss) = "(SSSeq " ++ show ss ++ ")"
+  show (SSFun _) = "(SSFun [...])"
+  show SSNone = "SSNone"
 
 -- Pads Types
 --
@@ -111,7 +118,7 @@ evalIntExp :: Exp -> Maybe Int
 evalIntExp (LitE (IntegerL n)) = Just . fromIntegral $ n
 evalIntExp _ = Nothing
 
-isFixedWidth :: Annotated a => a SkipStrategy -> Bool
+isFixedWidth :: Annotation a => a SkipStrategy -> Bool
 isFixedWidth (getAnn -> (SSFixed _)) = True
 isFixedWidth _ = False
 

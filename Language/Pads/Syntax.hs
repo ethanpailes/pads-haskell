@@ -1,4 +1,5 @@
-{-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE DeriveDataTypeable, MultiParamTypeClasses,
+    TypeSynonymInstances, FlexibleInstances #-}
 
 {-
 ** *********************************************************************
@@ -20,16 +21,30 @@ import Language.Haskell.TH
 -- The AST annotation technique used here is loosly inspired by this post:
 -- https://mail.haskell.org/pipermail/haskell-cafe/2010-July/080842.html
 -- the approach differes in that we don't want to break backwards compatability
--- with the old AST too badly, so GHC `ViewPatters` are used to provide
--- a transformation between a new annotated version of the AST and the
--- old unannotated version.
+-- with the old AST too badly.
 --
 -- A possible way to make this a little less verbose would be the Uniplate
 -- library, but now that the code is written, why make it slower?
 --
 
-class Annotated a where
+
+class Annotation a where
   getAnn :: a b -> b
+
+-- | c is annotated as a
+class Annotation a => Annotated c a where
+  ann :: b -> c -> a b
+  unAnn :: a b -> (b, c)
+
+  viewC :: a b -> c
+  viewC = snd . unAnn
+
+  {-# MINIMAL ann, unAnn #-}
+
+
+
+-- class Annotated a where
+--   getAnn :: a b -> b
 
 data PadsDeclAnn a =
     PadsDeclTypeAnn   a  String [String] (Maybe Pat) (PadsTyAnn a)
@@ -40,19 +55,20 @@ data PadsDeclAnn a =
 
 unPadsDeclAnn :: PadsDeclAnn a -> (a, PadsDecl)
 unPadsDeclAnn (PadsDeclTypeAnn   ann  x1 x2 x3 x4) =
-  (ann, PadsDeclType x1 x2 x3 (vPadsTy x4))
+  (ann, PadsDeclType x1 x2 x3 (viewC x4))
 unPadsDeclAnn (PadsDeclDataAnn   ann  x1 x2 x3 x4 x5) =
   (ann, PadsDeclData x1 x2 x3 (vPadsData x4) x5)
 unPadsDeclAnn (PadsDeclNewAnn    ann  x1 x2 x3 x4 x5) =
-  (ann, PadsDeclNew x1 x2 x3 (vBranchInfo x4) x5)
+  (ann, PadsDeclNew x1 x2 x3 (viewC x4) x5)
 unPadsDeclAnn (PadsDeclObtainAnn ann x1 x2 x3 x4) =
-  (ann, PadsDeclObtain x1 x2 (vPadsTy x3) x4)
+  (ann, PadsDeclObtain x1 x2 (viewC x3) x4)
 
-vPadsDecl :: PadsDeclAnn a -> PadsDecl
-vPadsDecl = snd . unPadsDeclAnn
-
-instance Annotated PadsDeclAnn where
+instance Annotation PadsDeclAnn where
   getAnn = fst . unPadsDeclAnn
+
+instance Annotated PadsDecl PadsDeclAnn where
+  ann = annPadsDecl
+  unAnn = unPadsDeclAnn
 
 annPadsDecl :: a -> PadsDecl -> PadsDeclAnn a
 annPadsDecl ann (PadsDeclType x0 x1 x2 x3)  =
@@ -86,22 +102,23 @@ data PadsTyAnn a =
 
 
 unPadsTyAnn :: PadsTyAnn a -> (a, PadsTy)
-unPadsTyAnn (PConstrainAnn ann x0 x1 x2) = (ann, PConstrain x0 (vPadsTy x1) x2)
-unPadsTyAnn (PTransformAnn ann x0 x1 x2) = (ann, PTransform (vPadsTy x0) (vPadsTy x1) x2)
-unPadsTyAnn (PListAnn ann x0 x1 x2) = (ann, PList (vPadsTy x0) (vPadsTy <$> x1) x2)
-unPadsTyAnn (PPartitionAnn ann x0 x1) = (ann, PPartition (vPadsTy x0) x1)
-unPadsTyAnn (PValueAnn ann x0 x1) = (ann, PValue x0 (vPadsTy x1))
-unPadsTyAnn (PAppAnn ann x0 x1) = (ann, PApp (map vPadsTy x0) x1)
-unPadsTyAnn (PTupleAnn ann x0) = (ann, PTuple (map vPadsTy x0))
+unPadsTyAnn (PConstrainAnn ann x0 x1 x2) = (ann, PConstrain x0 (viewC x1) x2)
+unPadsTyAnn (PTransformAnn ann x0 x1 x2) = (ann, PTransform (viewC x0) (viewC x1) x2)
+unPadsTyAnn (PListAnn ann x0 x1 x2) = (ann, PList (viewC x0) (viewC <$> x1) x2)
+unPadsTyAnn (PPartitionAnn ann x0 x1) = (ann, PPartition (viewC x0) x1)
+unPadsTyAnn (PValueAnn ann x0 x1) = (ann, PValue x0 (viewC x1))
+unPadsTyAnn (PAppAnn ann x0 x1) = (ann, PApp (map viewC x0) x1)
+unPadsTyAnn (PTupleAnn ann x0) = (ann, PTuple (map viewC x0))
 unPadsTyAnn (PExpressionAnn ann x0) = (ann, PExpression x0)
 unPadsTyAnn (PTyconAnn ann x0) = (ann, PTycon x0)
 unPadsTyAnn (PTyvarAnn ann x0) = (ann, PTyvar x0)
 
-vPadsTy :: PadsTyAnn a -> PadsTy
-vPadsTy = snd . unPadsTyAnn
-
-instance Annotated PadsTyAnn where
+instance Annotation PadsTyAnn where
   getAnn = fst . unPadsTyAnn
+
+instance Annotated PadsTy PadsTyAnn where
+  ann = annPadsTy
+  unAnn = unPadsTyAnn
 
 annPadsTy :: a -> PadsTy -> PadsTyAnn a
 annPadsTy ann (PConstrain x0 x1 x2) =
@@ -137,14 +154,15 @@ data TermCondAnn a =
      deriving (Eq, Data, Typeable, Show)
 
 unTermCondAnn :: TermCondAnn a -> (a, TermCond)
-unTermCondAnn (LTermAnn ann x0) = (ann, LTerm (vPadsTy x0))
+unTermCondAnn (LTermAnn ann x0) = (ann, LTerm (viewC x0))
 unTermCondAnn (LLenAnn ann x0) = (ann, LLen x0)
 
-vTermCond :: TermCondAnn a -> TermCond
-vTermCond = snd . unTermCondAnn
-
-instance Annotated TermCondAnn where
+instance Annotation TermCondAnn where
   getAnn = fst . unTermCondAnn
+
+instance Annotated TermCond TermCondAnn where
+  ann = annTermCond
+  unAnn = unTermCondAnn
 
 annTermCond :: a -> TermCond -> TermCondAnn a
 annTermCond ann (LTerm x0) = LTermAnn ann (annPadsTy ann x0)
@@ -160,15 +178,19 @@ data PadsDataAnn a =
      deriving (Eq, Data, Typeable, Show)
 
 unPadsDataAnn :: PadsDataAnn a -> (a, PadsData)
-unPadsDataAnn (PUnionAnn ann x0) = (ann, PUnion (map vBranchInfo x0))
+unPadsDataAnn (PUnionAnn ann x0) = (ann, PUnion (map viewC x0))
 unPadsDataAnn (PSwitchAnn ann x0 x1) =
-  (ann, PSwitch x0 (map (\(x,y) -> (x, vBranchInfo y)) x1))
+  (ann, PSwitch x0 (map (\(x,y) -> (x, viewC y)) x1))
 
 vPadsData :: PadsDataAnn a -> PadsData
 vPadsData = snd . unPadsDataAnn
 
-instance Annotated PadsDataAnn where
+instance Annotation PadsDataAnn where
   getAnn = fst . unPadsDataAnn
+
+instance Annotated PadsData PadsDataAnn where
+  ann = annPadsData
+  unAnn = unPadsDataAnn
 
 annPadsData :: a -> PadsData -> PadsDataAnn a
 annPadsData ann (PUnion x0) = PUnionAnn ann (map (annBranchInfo ann) x0)
@@ -186,15 +208,16 @@ data BranchInfoAnn a =
 
 unBranchInfoAnn :: BranchInfoAnn a -> (a, BranchInfo)
 unBranchInfoAnn (BRecordAnn ann x0 x1 x2) =
-  (ann, BRecord x0 (map vFieldInfo x1) x2)
+  (ann, BRecord x0 (map viewC x1) x2)
 unBranchInfoAnn (BConstrAnn ann x0 x1 x2) =
-  (ann, BConstr x0 (map vConstrArg x1) x2)
+  (ann, BConstr x0 (map viewC x1) x2)
 
-vBranchInfo :: BranchInfoAnn a -> BranchInfo
-vBranchInfo = snd . unBranchInfoAnn
-
-instance Annotated BranchInfoAnn where
+instance Annotation BranchInfoAnn where
   getAnn = fst . unBranchInfoAnn
+
+instance Annotated BranchInfo BranchInfoAnn where
+  ann = annBranchInfo
+  unAnn = unBranchInfoAnn
 
 annBranchInfo :: a -> BranchInfo -> BranchInfoAnn a
 annBranchInfo ann (BRecord x0 x1 x2) =
@@ -210,14 +233,15 @@ newtype FieldInfoAnn a =
   FieldInfoAnn (a, (Maybe String, ConstrArgAnn a, Maybe Exp))
     deriving (Eq, Data, Typeable, Show)
 
-unFieldInfo :: FieldInfoAnn a -> (a, FieldInfo)
-unFieldInfo (FieldInfoAnn (y, (x0, x1, x2))) = (y, (x0, vConstrArg x1, x2))
+unFieldInfoAnn :: FieldInfoAnn a -> (a, FieldInfo)
+unFieldInfoAnn (FieldInfoAnn (y, (x0, x1, x2))) = (y, (x0, viewC x1, x2))
 
-vFieldInfo :: FieldInfoAnn a -> FieldInfo
-vFieldInfo = snd . unFieldInfo
+instance Annotation FieldInfoAnn where
+  getAnn = fst . unFieldInfoAnn
 
-instance Annotated FieldInfoAnn where
-  getAnn = fst . unFieldInfo
+instance Annotated FieldInfo FieldInfoAnn where
+  ann = annFieldInfo
+  unAnn = unFieldInfoAnn
 
 annFieldInfo :: a -> FieldInfo -> FieldInfoAnn a
 annFieldInfo ann (x0, x1, x2) =
@@ -230,14 +254,15 @@ type FieldInfo = (Maybe String, ConstrArg, Maybe Exp)
 newtype ConstrArgAnn a = ConstrArgAnn (a, (Strict, PadsTyAnn a))
     deriving (Eq, Data, Typeable, Show)
 
-unConstrArg :: ConstrArgAnn a -> (a, ConstrArg)
-unConstrArg (ConstrArgAnn (y, (x0, x1))) = (y, (x0, vPadsTy x1))
+unConstrArgAnn :: ConstrArgAnn a -> (a, ConstrArg)
+unConstrArgAnn (ConstrArgAnn (y, (x0, x1))) = (y, (x0, viewC x1))
 
-vConstrArg :: ConstrArgAnn a -> ConstrArg
-vConstrArg = snd . unConstrArg
+instance Annotation ConstrArgAnn where
+  getAnn = fst . unConstrArgAnn
 
-instance Annotated ConstrArgAnn where
-  getAnn = fst . unConstrArg
+instance Annotated ConstrArg ConstrArgAnn where
+  ann = annConstrArg
+  unAnn = unConstrArgAnn
 
 annConstrArg :: a -> ConstrArg -> ConstrArgAnn a
 annConstrArg ann (x0, x1) = ConstrArgAnn (ann, (x0, annPadsTy ann x1))
