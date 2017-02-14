@@ -1,8 +1,10 @@
+{-# LANGUAGE TemplateHaskell #-}
+
 
 module LazyOptTest where
 
 import Language.Haskell.TH (Exp(..), Lit(..))
-import Language.Haskell.TH.Syntax (Strict(..))
+import Language.Haskell.TH.Syntax (Strict(..), mkName, newName, nameBase)
 import Language.Pads.Syntax
 import Language.Pads.LazyOpt
 import Language.Pads.Parser
@@ -31,6 +33,8 @@ test = runTestTT $ TestList [
   , TestLabel "optSeq" . TestCase . assert
     . (==SSSeq [SSNone, SSFixed 4, SSNone, SSFixed 5])
     . optimise $ SSSeq [SSSeq [SSNone, SSFixed 4], SSNone, SSSeq [SSFixed 5]]
+
+  , TestLabel "shouldBeThree" . TestCase . assert . (==3) $ shouldBeThree
   ]
 
 fixedTestTy :: String -> PadsTy -> (PadsTyAnn SkipStrategy -> Bool) -> Test
@@ -102,3 +106,22 @@ twoBranchDifferentWidth = r
   where Right [PadsDeclData _ _ _ r _] = testParse
                       "data D = D { foo :: StringFW 90, ' ', baz :: StringFW 13 }\
                       \       | B { 'xyz', bar :: StringFW 15 }"
+
+
+ssFunAdd :: SkipStrategy
+ssFunAdd = let x = mkName "x"
+               y = mkName "y"
+            in (SSFun [x,y] (UInfixE (VarE x) (VarE (mkName "+")) (VarE y)))
+
+-- A smoke test for the SSFun hack
+shouldBeThree :: Int
+shouldBeThree = $(applySSFun
+
+                   -- the function to apply
+                 (let x = mkName "x"
+                      y = mkName "y"
+                   in (SSFun [x,y] (UInfixE (VarE x)
+                                    (VarE (mkName "+")) (VarE y))))
+
+                 -- the arguments to the function
+                 (ListE [LitE (IntegerL 1),LitE (IntegerL 2)]))

@@ -1,5 +1,5 @@
 {-# LANGUAGE DeriveDataTypeable, MultiParamTypeClasses,
-    TypeSynonymInstances, FlexibleInstances #-}
+    TypeSynonymInstances, FlexibleInstances, TemplateHaskell #-}
 
 {-
 ** *********************************************************************
@@ -16,6 +16,8 @@ module Language.Pads.Syntax where
 
 import Data.Generics
 import Language.Haskell.TH
+import Language.Haskell.TH.Syntax as THS
+import Language.Haskell.TH.Lift (deriveLiftMany)
 
 --
 -- The AST annotation technique used here is loosly inspired by this post:
@@ -270,6 +272,20 @@ annConstrArg ann (x0, x1) = ConstrArgAnn (ann, (x0, annPadsTy ann x1))
 type ConstrArg = (Strict, PadsTy)
 
 type QString = [String]  -- qualified names
+
+--
+-- Allow annotated pads ast nodes to be lifed into compiletime values
+--
+$(deriveLiftMany [''PadsTyAnn, ''TermCondAnn, ''Exp, ''Pat,
+                  ''Match, ''Type, ''Dec, ''Clause, ''FunDep,
+                  ''TyVarBndr, ''Lit, ''TySynEqn, ''TyLit,
+                  ''Stmt, ''Role, ''Range, ''Pragma, ''RuleMatch,
+                  ''RuleBndr, ''Phases, ''Inline, ''Guard,
+                  ''Foreign, ''Safety, ''THS.Fixity, ''FixityDirection,
+                  ''FamFlavour, ''Con, ''Strict, ''Callconv, ''Body,
+                  ''AnnTarget, ''PadsDeclAnn, ''PadsDataAnn,
+                  ''BranchInfoAnn, ''ConstrArgAnn, ''FieldInfoAnn
+                 ])
 
 
 hasRep :: PadsTy -> Bool

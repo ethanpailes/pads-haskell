@@ -13,29 +13,34 @@ import Language.Pads.Syntax
 import Language.Pads.RegExp
 import Data.List (intersperse)
 
+import Language.Haskell.TH
+import Language.Haskell.TH.Syntax
+import Language.Haskell.TH.Lift (deriveLift)
+
 ----------------------------------------------------------------------
 -- Analysis Step
 ----------------------------------------------------------------------
 
 -- | An AST annotation to indicate the best way to skip over the given
 --   type without actually parsing it for information.
-data SkipStrategy = SSFixed Int
-                  | SSSeq [SkipStrategy]
-                  | SSFun ([SkipStrategy] -> SkipStrategy)
-                  | SSNone
+data SkipStrategy =
+    SSFixed Int
+  | SSSeq [SkipStrategy]
+  -- SSFun's args are spiritually of type ([SkipStrategy] -> SkipStrategy)
+  -- the expression expects to be evaluated in a context where a value
+  -- of type SkipStrategy is bound to each of the Name's in the argument
+  -- list. This hackery is required because otherwise there is no way
+  -- to provide a Lift instance for SkipStrategy, which is required if
+  -- we want to stuff it in the generated PADS_CG_METADATA fields.
+  | SSFun [Name] Exp
+  | SSNone
+    deriving(Eq, Show)
 
-instance Show SkipStrategy where
-  show (SSFixed i) = "(SSFixed " ++ show i ++ ")"
-  show (SSSeq ss) = "(SSSeq " ++ show ss ++ ")"
-  show (SSFun _) = "(SSFun [...])"
-  show SSNone = "SSNone"
-
--- Not true equality, but still useful
-instance Eq SkipStrategy where
-  SSFixed n1 == SSFixed n2 = n1 == n2
-  SSSeq s1 == SSSeq s2 = s1 == s2
-  SSNone == SSNone = True
-  _ == _ = False
+applySSFun :: SkipStrategy -> Exp -> Q Exp
+applySSFun (SSFun ns body) (ListE es) =
+  return $ LetE [ValD (VarP n) (NormalB e) [] | (n, e) <- zip ns es] body
+applySSFun _ _ =
+  fail "applySSFun: called on non-SSFun arg, or with non-list expression"
 
 -- Pads Types
 --
@@ -168,3 +173,5 @@ fixedLit (LitE (CharL _)) = Just 1
 fixedLit (AppE (ConE con) (LitE (StringL s))) | nameBase con == "RE" =
     if s =~ "[ a-zA-Z0-9]*" then Just . length $ s else Nothing
 fixedLit _ = Nothing
+
+$(deriveLift ''SkipStrategy)
