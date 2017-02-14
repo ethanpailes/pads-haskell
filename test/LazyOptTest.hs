@@ -24,6 +24,13 @@ test = runTestTT $ TestList [
   , fixedTestData "singleBranchDataDecl" singleBranchDataDecl isFixedWidth
   , fixedTestData "twoBranchSameWidth" twoBranchSameWidth isFixedWidth
   , fixedTestData "twoBranchDifferentWidth" twoBranchDifferentWidth (not . isFixedWidth)
+
+  , TestLabel "optFixed" . TestCase . assert
+    . (==SSFixed 10) . optimise $ SSSeq [SSFixed 3, SSFixed 4, SSFixed 3]
+
+  , TestLabel "optSeq" . TestCase . assert
+    . (==SSSeq [SSNone, SSFixed 4, SSNone, SSFixed 5])
+    . optimise $ SSSeq [SSSeq [SSNone, SSFixed 4], SSNone, SSSeq [SSFixed 5]]
   ]
 
 fixedTestTy :: String -> PadsTy -> (PadsTyAnn SkipStrategy -> Bool) -> Test

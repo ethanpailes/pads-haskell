@@ -11,6 +11,7 @@ import Language.Haskell.TH (Exp(..), Lit(..), nameBase)
 import Language.Haskell.TH.Syntax (Strict(..))
 import Language.Pads.Syntax
 import Language.Pads.RegExp
+import Data.List (intersperse)
 
 ----------------------------------------------------------------------
 -- Analysis Step
@@ -52,29 +53,18 @@ ssPadsTy (PApp tc@[PTycon ["StringFW"]] e@(Just (evalIntExp -> Just n))) =
 ssPadsTy (PExpression e@(fixedLit -> Just n)) =
   PExpressionAnn (SSFixed n) e
 
--- fixed width lists
+-- fixed width lists, with fixed width elements
 ssPadsTy (PList (ssPadsTy -> memberTy)
                   ((ssPadsTy <$>) -> sepTy)
                   l@(Just (LLen (evalIntExp -> Just len)))) =
-  PListAnn (maybe SSNone SSFixed byteLength)
-    memberTy sepTy (ann SSNone <$> l)
-  where byteLength = do
-          let (SSFixed n) = getAnn memberTy
-          let (SSFixed m) = fromMaybe (SSFixed 0) $ getAnn <$> sepTy
-          Just $ (len * n) + ((len - 1) * m)
+  PListAnn
+      ((optimise . SSSeq) (intersperse (fromMaybe (SSFixed 0) (getAnn <$> sepTy))
+                        (replicate len (getAnn memberTy))))
+      memberTy sepTy (ann SSNone <$> l)
 
 -- Tuples
 ssPadsTy (PTuple (map ssPadsTy -> taus)) =
-  let skipStrats = map getAnn taus
-      width = foldr (\ss acc -> case ss of
-                                  (SSFixed n) -> (liftM2 (+)) acc (return n)
-                                  _ -> Nothing)
-                    (Just 0)
-                    skipStrats
-   in PTupleAnn
-        (maybe (if (all (==SSNone) skipStrats) then SSNone else SSSeq skipStrats)
-                  SSFixed width)
-        taus
+  PTupleAnn (optimise . SSSeq . map getAnn $ taus) taus
 
 
 -- Cases that I'm not so sure about.
@@ -82,7 +72,7 @@ ssPadsTy (PTuple (map ssPadsTy -> taus)) =
 -- so, they are untested
 ssPadsTy (PTransform (ssPadsTy -> tau1) (ssPadsTy -> tau2) e) =
   PTransformAnn (getAnn tau1) tau1 tau2 e
-ssPadsTy (PPartition (ssPadsTy -> tau) e) =
+ssPadsTy (PPartition (ssPadsTy -> tau) e) = -- TODO: this needs to do something with record discipline
   PPartitionAnn (getAnn tau) tau e
 ssPadsTy (PValue e (ssPadsTy -> tau)) = PValueAnn (SSFixed 0) e tau
 
@@ -93,7 +83,7 @@ ssPadsTy t = annPadsTy SSNone t
 --
 
 ssConstArg :: ConstrArg -> ConstrArgAnn SkipStrategy
-ssConstArg ca@(x, (ssPadsTy -> ty)) = annConstrArg (getAnn ty) ca
+ssConstArg ca@(_, (ssPadsTy -> ty)) = annConstrArg (getAnn ty) ca
 
 ssPadsData :: PadsData -> PadsDataAnn SkipStrategy
 
@@ -141,6 +131,22 @@ data PadsDecl = PadsDeclType   String [String] (Maybe Pat) PadsTy
 --
 -- Helper Functions
 --
+
+optimise :: SkipStrategy -> SkipStrategy
+optimise (SSSeq []) = SSFixed 0
+optimise (SSSeq [SSFixed n]) = SSFixed n
+optimise (SSSeq ((SSFixed 0):ss)) = optimise (SSSeq ss)
+optimise (SSSeq ((SSFixed n):(SSFixed m):rest) ) =
+  case optimise (SSSeq rest) of
+    (SSSeq ss) -> SSSeq ((SSFixed (n + n)):ss)
+    (SSFixed k) -> SSFixed (n + m + k)
+    ss -> SSSeq [SSFixed (n + m), ss]
+optimise (SSSeq ((SSSeq ss1):ss2)) = optimise . SSSeq $ ss1 ++ ss2
+optimise (SSSeq (s:ss)) =
+  case optimise (SSSeq ss) of
+    (SSSeq ss') -> SSSeq (s:ss')
+    ss' -> SSSeq [s, ss']
+optimise ss = ss
 
 -- for now, just handles the literal case, but eventually it would be nice
 -- to actually parse stuff and eval it

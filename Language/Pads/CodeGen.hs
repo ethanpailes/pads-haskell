@@ -30,6 +30,7 @@ import Data.Char
 import qualified Data.Map as M
 import qualified Data.List as List
 import qualified Data.Maybe as Maybe
+import Language.Pads.LazyOpt (SkipStrategy(..), ssPadsDecl)
 import Control.Monad
 
 import Debug.Trace
@@ -37,6 +38,10 @@ import Debug.Trace
 type BString = S.RawStream
 
 type Derivation = Dec -> Q [Dec]
+
+data PadsCodeGenMetadata = PadsCodeGenMetadata {
+       pcg_METADATA_skipStrategy :: PadsDeclAnn SkipStrategy
+    }
 
 make_pads_declarations :: [PadsDecl] -> Q [Dec]
 make_pads_declarations = make_pads_declarations' (const $ return [])
@@ -88,6 +93,12 @@ genPadsDecl derivation (PadsDeclObtain name args padsTy exp) = do
   def <- genPadsObtainDef name args padsTy exp
   let sigs = mkPadsSignature name args Nothing
   return $ mdDec ++ parseM ++ parseS ++ printFL ++ def ++ sigs
+
+genPadsDeclCodeGenMetadata :: Name -> PadsDecl -> Q [Dec]
+genPadsDeclCodeGenMetadata name dec =
+  return $ [ [| PadsCodeGenMetadata {
+      pcg_METADATA_skipStrategy = ssPadsDecl dec
+  } |] ]
 
 patType :: Pat -> Type
 patType p = case p of
