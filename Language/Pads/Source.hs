@@ -20,6 +20,7 @@ import Data.Int
 import Data.Data
 import Data.Word
 import Data.Char
+import Data.String (IsString(..))
 import qualified Data.ByteString.Char8 as Char8
 
 type RawStream = B.ByteString   -- This is the type that should be used in other files!!!
@@ -31,13 +32,19 @@ data Source = Source { current  :: B.ByteString
                      , disc     :: RecordDiscipline
                      , eorAtEOF :: Bool  -- Relevant for seperator-based record disciplines: Single, Multi
                                          -- Set when current record is last record and separtor appeared at end.
-                     }    
+                     }
+  deriving(Show)
+
+-- | An IsString instance so that `-XOverloadedStrings` works
+instance IsString Source where
+  fromString = padsSourceFromString
 
 data RecordDiscipline = Single Word8
                       | Multi B.ByteString
                       | Bytes Int
                       | NoPartition
                       | NoDiscipline  -- No discipline is currently installed; all input data is in 'rest' field
+                      deriving(Show)
 
 newline = Single (chrToWord8 '\n')
 windows = Multi  (B.pack (strToWord8s "\r\n"))

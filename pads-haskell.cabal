@@ -96,7 +96,8 @@ Library
                     byteorder >= 1.0.4,
                     old-locale >= 1.0.0.6,
                     time >= 1.4.2,
-                    th-lift >= 0.7
+                    th-lift >= 0.7,
+                    th-orphans >= 0.13
 
   -- Modules not exported by this package.
   Other-modules:       Language.Pads.CodeGen,
@@ -106,7 +107,8 @@ Library
                        Language.Pads.PadsParser,
                        Language.Pads.PadsPrinter,
                        Language.Pads.LazyList,
-                       Language.Pads.LazyOpt
+                       Language.Pads.LazyOpt,
+                       Language.Pads.LazyAccessors
 
   -- Extra tools (e.g. alex, hsc2hs, ...) needed to build the source.
   -- Build-tools:         
@@ -141,9 +143,11 @@ Test-Suite test-pads
     Language.Pads.TH,
     Language.Pads.Testing,
     Language.Pads.LazyOpt,
+    Language.Pads.LazyAccessors,
 
     -- Test Modules
-    LazyOptTest
+    LazyOptTest,
+    LazyOptTestValues
 
   -- Packages needed in order to build this package.
   build-depends:    base >= 4.7 && < 5,
@@ -161,5 +165,6 @@ Test-Suite test-pads
                     byteorder >= 1.0.4,
                     old-locale >= 1.0.0.6,
                     time >= 1.4.2,
-                    th-lift >= 0.7
+                    th-lift >= 0.7,
+                    th-orphans >= 0.13
   

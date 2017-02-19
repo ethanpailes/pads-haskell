@@ -1,14 +1,13 @@
-{-# LANGUAGE TemplateHaskell #-}
-
-
+{-# LANGUAGE TemplateHaskell, QuasiQuotes, ScopedTypeVariables #-}
 module LazyOptTest where
 
-import Language.Haskell.TH (Exp(..), Lit(..))
-import Language.Haskell.TH.Syntax (Strict(..), mkName, newName, nameBase)
-import Language.Pads.Syntax
+import Language.Pads.LazyAccessors
 import Language.Pads.LazyOpt
-import Language.Pads.Parser
-import Text.Parsec.Error
+import Language.Pads.Syntax
+import Language.Pads.RegExp
+import Language.Pads.CoreBaseTypes
+
+import LazyOptTestValues
 
 import Test.HUnit.Text
 import Test.HUnit.Base
@@ -18,8 +17,10 @@ test = runTestTT $ TestList [
     fixedTestTy "fixedWidthString" fixedWidthString isFixedWidth
   , fixedTestTy "fixedLengthArray" fixedLengthArray isFixedWidth
   , fixedTestTy "mulitLetterLiteral" multiLetterLiteral isFixedWidth
+  , fixedTestTy "mulitLitRE" multiLitRE (not . isFixedWidth)
   , fixedTestTy "fixedTuple" fixedTuple isFixedWidth
-  , fixedTestTy "nonFixedTuple" nonFixedTuple ((==SSSeq [SSFixed 3, SSNone, SSFixed 45]) . getAnn)
+  , fixedTestTy "nonFixedTuple" nonFixedTuple
+      ((==[SSFixed 3, SSNone, SSFixed 45]) . map snd . (\(SSSeq x) -> x) . snd)
   , TestLabel "fixedPrims" $
         TestList (map (TestCase . assert . isFixedWidth . ssPadsTy) fixedPrims)
   , fixedTestDecl "typeAlias" typeAlias isFixedWidth
@@ -28,100 +29,29 @@ test = runTestTT $ TestList [
   , fixedTestData "twoBranchDifferentWidth" twoBranchDifferentWidth (not . isFixedWidth)
 
   , TestLabel "optFixed" . TestCase . assert
-    . (==SSFixed 10) . optimise $ SSSeq [SSFixed 3, SSFixed 4, SSFixed 3]
+    . (==SSFixed 10) . snd . optimise $
+       (PTyvar "BOGUS",
+        SSSeq (zip (repeat (PTyvar "BOGUS")) [SSFixed 3, SSFixed 4, SSFixed 3]))
 
   , TestLabel "optSeq" . TestCase . assert
-    . (==SSSeq [SSNone, SSFixed 4, SSNone, SSFixed 5])
-    . optimise $ SSSeq [SSSeq [SSNone, SSFixed 4], SSNone, SSSeq [SSFixed 5]]
+    . (==[SSNone, SSFixed 4, SSNone, SSFixed 5])
+    . map snd . (\(SSSeq x) -> x) . snd . optimise $
+         (PTyvar "BOGUS",
+            SSSeq (zip (repeat (PTyvar "BOGUS"))
+                   [SSSeq [(PTyvar "BOGUS", SSNone), (PTyvar "BOGUS", SSFixed 4)],
+                    SSNone, SSSeq [(PTyvar "BOGUS", SSFixed 5)]]))
 
   , TestLabel "shouldBeThree" . TestCase . assert . (==3) $ shouldBeThree
   ]
 
-fixedTestTy :: String -> PadsTy -> (PadsTyAnn SkipStrategy -> Bool) -> Test
-fixedTestTy l ty p = TestLabel l . TestCase . assert . p . ssPadsTy $ ty
+fixedTestTy :: String -> PadsTy -> ((PadsTy, SkipStrategy) -> Bool) -> Test
+fixedTestTy l ty p =
+  TestLabel l . TestCase . assert . p . optimise . ssPadsTy $ ty
 
-fixedTestDecl :: String -> PadsDecl -> (PadsDeclAnn SkipStrategy -> Bool) -> Test
+fixedTestDecl :: String -> PadsDecl -> ((PadsDecl, SkipStrategy) -> Bool) -> Test
 fixedTestDecl l ty p = TestLabel l . TestCase . assert . p . ssPadsDecl $ ty
 
-fixedTestData :: String -> PadsData -> (PadsDataAnn SkipStrategy -> Bool) -> Test
+fixedTestData :: String -> PadsData -> ((PadsData, SkipStrategy) -> Bool) -> Test
 fixedTestData l ty p = TestLabel l . TestCase . assert . p . ssPadsData $ ty
 
---
--- GHCI testing values
---
-
-testParse :: String -> Either ParseError [PadsDecl]
-testParse = parsePadsDecls "test_src" 0 0
-
-fixedWidthString :: PadsTy
-fixedWidthString =
-  (PApp [PTycon ["StringFW"]] (Just (LitE (IntegerL 10))))
-
-fixedLengthArray :: PadsTy
-fixedLengthArray =
-  (PList (PApp [PTycon ["StringFW"]] (Just (LitE (IntegerL 9))))
-   Nothing (Just (LLen (LitE (IntegerL 15)))))
-
-multiLetterLiteral :: PadsTy
-multiLetterLiteral = mll
-  where Right [PadsDeclType _ _ _ mll] =
-          testParse "type F = 'abc'"
-
-fixedPrims :: [PadsTy]
-fixedPrims = map (\c -> PTycon [c]) ["Char", "Digit"]
-
-fixedTuple :: PadsTy
-fixedTuple = ty
-  where Right [PadsDeclType _ _ _ ty] =
-          testParse "type F = ('abc', 'bar', StringFW 45)"
-
-nonFixedTuple :: PadsTy
-nonFixedTuple = ty
-  where Right [PadsDeclType _ _ _ ty] =
-          testParse "type F = ('abc', StringC ',', StringFW 45)"
-
--- Declarations
-
-typeAlias :: PadsDecl
-typeAlias = PadsDeclType "Foo" [] Nothing (PTycon ["Digit"])
-
--- Data Types
-
-singleBranchDataDecl :: PadsData
-singleBranchDataDecl = (PUnion [BRecord "Foo"
-          [(Just "s1", (NotStrict, PApp [PTycon ["StringFW"]]
-                           (Just (LitE (IntegerL 10)))),Nothing),
-            (Nothing,(NotStrict,PExpression (LitE (CharL ' '))),Nothing),
-            (Just "s2",(NotStrict,PApp [PTycon ["StringFW"]]
-                         (Just (LitE (IntegerL 2)))),Nothing)] Nothing])
-
-twoBranchSameWidth :: PadsData
-twoBranchSameWidth = r
-  where Right [PadsDeclData _ _ _ r _] = testParse
-                      "data D = D { foo :: StringFW 4, ' ', baz :: StringFW 13 }\
-                      \       | B { 'xyz', bar :: StringFW 15 }"
-
-twoBranchDifferentWidth :: PadsData
-twoBranchDifferentWidth = r
-  where Right [PadsDeclData _ _ _ r _] = testParse
-                      "data D = D { foo :: StringFW 90, ' ', baz :: StringFW 13 }\
-                      \       | B { 'xyz', bar :: StringFW 15 }"
-
-
-ssFunAdd :: SkipStrategy
-ssFunAdd = let x = mkName "x"
-               y = mkName "y"
-            in (SSFun [x,y] (UInfixE (VarE x) (VarE (mkName "+")) (VarE y)))
-
--- A smoke test for the SSFun hack
-shouldBeThree :: Int
-shouldBeThree = $(applySSFun
-
-                   -- the function to apply
-                 (let x = mkName "x"
-                      y = mkName "y"
-                   in (SSFun [x,y] (UInfixE (VarE x)
-                                    (VarE (mkName "+")) (VarE y))))
-
-                 -- the arguments to the function
-                 (ListE [LitE (IntegerL 1),LitE (IntegerL 2)]))
+$(genLazyAccessor fixedTupleAnn "aFixedWidthTuple")

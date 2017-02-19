@@ -41,11 +41,11 @@ type BString = S.RawStream
 type Derivation = Dec -> Q [Dec]
 
 data PadsCodeGenMetadata = PadsCodeGenMetadata {
-       pcg_METADATA_skipStrategy :: PadsDeclAnn SkipStrategy
+       pcg_METADATA_skipStrategy :: (PadsDecl, SkipStrategy)
     }
   deriving(Eq, Show)
 padsCGMetadataPrefix :: String
-padsCGMetadataPrefix = "pads_CG_METADATA"
+padsCGMetadataPrefix = "pads_CG_METADATA_"
 
 make_pads_declarations :: [PadsDecl] -> Q [Dec]
 make_pads_declarations = make_pads_declarations' (const $ return [])

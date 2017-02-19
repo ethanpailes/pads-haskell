@@ -18,6 +18,7 @@ import Data.Generics
 import Language.Haskell.TH
 import Language.Haskell.TH.Syntax as THS
 import Language.Haskell.TH.Lift (deriveLiftMany)
+import Language.Haskell.TH.Instances
 
 --
 -- The AST annotation technique used here is loosly inspired by this post:
@@ -276,16 +277,10 @@ type QString = [String]  -- qualified names
 --
 -- Allow annotated pads ast nodes to be lifed into compiletime values
 --
-$(deriveLiftMany [''PadsTyAnn, ''TermCondAnn, ''Exp, ''Pat,
-                  ''Match, ''Type, ''Dec, ''Clause, ''FunDep,
-                  ''TyVarBndr, ''Lit, ''TySynEqn, ''TyLit,
-                  ''Stmt, ''Role, ''Range, ''Pragma, ''RuleMatch,
-                  ''RuleBndr, ''Phases, ''Inline, ''Guard,
-                  ''Foreign, ''Safety, ''THS.Fixity, ''FixityDirection,
-                  ''FamFlavour, ''Con, ''Strict, ''Callconv, ''Body,
-                  ''AnnTarget, ''PadsDeclAnn, ''PadsDataAnn,
-                  ''BranchInfoAnn, ''ConstrArgAnn, ''FieldInfoAnn
-                 ])
+$(deriveLiftMany [''PadsTyAnn, ''TermCondAnn, ''PadsDeclAnn, ''PadsDataAnn,
+                  ''BranchInfoAnn, ''ConstrArgAnn, ''FieldInfoAnn,
+                  ''PadsDecl, ''PadsTy, ''TermCond, ''PadsData,
+                  ''BranchInfo])
 
 
 hasRep :: PadsTy -> Bool
@@ -298,6 +293,4 @@ hasRep ty                 = True
 qName :: QString -> String
 qName [n] = n
 qName (n:ms) = n ++ "." ++ qName ms
-
-
 

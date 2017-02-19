@@ -7,10 +7,7 @@ import Text.Regex.Posix ((=~))
 import Debug.Trace
 import Control.Monad
 import Data.Maybe (fromMaybe)
-import Language.Haskell.TH (Exp(..), Lit(..), nameBase)
-import Language.Haskell.TH.Syntax (Strict(..))
 import Language.Pads.Syntax
-import Language.Pads.RegExp
 import Data.List (intersperse)
 
 import Language.Haskell.TH
@@ -25,7 +22,7 @@ import Language.Haskell.TH.Lift (deriveLift)
 --   type without actually parsing it for information.
 data SkipStrategy =
     SSFixed Int
-  | SSSeq [SkipStrategy]
+  | SSSeq [(PadsTy, SkipStrategy)]
   -- SSFun's args are spiritually of type ([SkipStrategy] -> SkipStrategy)
   -- the expression expects to be evaluated in a context where a value
   -- of type SkipStrategy is bound to each of the Name's in the argument
@@ -42,115 +39,114 @@ applySSFun (SSFun ns body) (ListE es) =
 applySSFun _ _ =
   fail "applySSFun: called on non-SSFun arg, or with non-list expression"
 
+
 -- Pads Types
 --
 
-ssPadsTy :: PadsTy -> PadsTyAnn SkipStrategy
+ssPadsTy :: PadsTy -> (PadsTy, SkipStrategy)
 
 -- primitive fixed width types
-ssPadsTy (PTycon tc@[fixedPrim -> Just n]) = PTyconAnn (SSFixed n) tc
+ssPadsTy ty@(PTycon tc@[fixedPrim -> Just n]) = (ty, (SSFixed n))
 
 -- fixed width strings
-ssPadsTy (PApp tc@[PTycon ["StringFW"]] e@(Just (evalIntExp -> Just n))) =
-  PAppAnn (SSFixed n) (map (annPadsTy SSNone) tc) e
+ssPadsTy ty@(PApp tc@[PTycon ["StringFW"]] e@(Just (evalIntExp -> Just n))) =
+  (ty, (SSFixed n))
+
+-- fixed hex numbers TODO: do we really need this once recursion is working?
+ssPadsTy ty@(PApp tc@[PTycon ["Phex32FW"]] e@(Just (evalIntExp -> Just n))) =
+  (ty, (SSFixed n))
 
 -- literals
-ssPadsTy (PExpression e@(fixedLit -> Just n)) =
-  PExpressionAnn (SSFixed n) e
+ssPadsTy ty@(PExpression e@(fixedLit -> Just n)) =
+  (ty, (SSFixed n))
 
 -- fixed width lists, with fixed width elements
-ssPadsTy (PList (ssPadsTy -> memberTy)
+ssPadsTy ty@(PList (ssPadsTy -> memberTy)
                   ((ssPadsTy <$>) -> sepTy)
                   l@(Just (LLen (evalIntExp -> Just len)))) =
-  PListAnn
-      ((optimise . SSSeq) (intersperse (fromMaybe (SSFixed 0) (getAnn <$> sepTy))
-                        (replicate len (getAnn memberTy))))
-      memberTy sepTy (ann SSNone <$> l)
+      (ty, SSSeq (case sepTy of
+                    (Just sep) -> intersperse sep $ replicate len memberTy
+                    Nothing -> replicate len memberTy))
 
 -- Tuples
-ssPadsTy (PTuple (map ssPadsTy -> taus)) =
-  PTupleAnn (optimise . SSSeq . map getAnn $ taus) taus
+ssPadsTy ty@(PTuple (map ssPadsTy -> taus)) = (ty, SSSeq taus)
 
 
 -- Cases that I'm not so sure about.
 -- For some of these I could not convince the parser to emit good values
 -- so, they are untested
-ssPadsTy (PTransform (ssPadsTy -> tau1) (ssPadsTy -> tau2) e) =
-  PTransformAnn (getAnn tau1) tau1 tau2 e
-ssPadsTy (PPartition (ssPadsTy -> tau) e) = -- TODO: this needs to do something with record discipline
-  PPartitionAnn (getAnn tau) tau e
-ssPadsTy (PValue e (ssPadsTy -> tau)) = PValueAnn (SSFixed 0) e tau
+ssPadsTy ty@(PTransform (ssPadsTy -> tau1) (ssPadsTy -> tau2) e) =
+  (ty, snd tau1)
+ssPadsTy ty@(PPartition (ssPadsTy -> tau) e) = -- TODO: this needs to do something with record discipline
+  (ty, snd tau)
+ssPadsTy ty@(PValue e (ssPadsTy -> tau)) = (ty, SSFixed 0)
 
 -- default
-ssPadsTy t = annPadsTy SSNone t
+ssPadsTy t = (t, SSNone)
 
 -- Pads Datatypes
 --
 
-ssConstArg :: ConstrArg -> ConstrArgAnn SkipStrategy
-ssConstArg ca@(_, (ssPadsTy -> ty)) = annConstrArg (getAnn ty) ca
+ssConstArg :: ConstrArg -> (ConstrArg, SkipStrategy)
+ssConstArg ca@(_, (ssPadsTy -> ty)) = (ca, snd ty)
 
-ssPadsData :: PadsData -> PadsDataAnn SkipStrategy
+
+ssPadsData :: PadsData -> (PadsData, SkipStrategy)
 
 -- unions are fixed width iff all branches are fixed width
 ssPadsData u@(PUnion branches) =
   case sequence branchSizes of
       (Just (b:bs)) -> if all (==b) bs
-                         then annPadsData (SSFixed b) u
-                         else annPadsData SSNone u
-      (Just []) -> annPadsData (SSFixed 0) u
-      Nothing -> annPadsData SSNone u
+                         then (u, SSFixed b)
+                         else (u, SSNone)
+      (Just []) -> (u, SSFixed 0)
+      Nothing -> (u, SSNone)
   where branchSizes = map branchSize branches
         branchSize :: BranchInfo -> Maybe Int
         branchSize (BRecord _ fieldInfo exp) =
           foldr (liftM2 (+)) (Just 0)
             (map (\(_, (_, ssPadsTy -> ty), _) ->
-                    case getAnn ty of
+                    case snd ty of
                       (SSFixed n) -> Just n
                       SSNone -> Nothing) fieldInfo)
   -- TODO(ethan): BConstr branch
         branchSize _ = Nothing
 
-ssPadsData d = annPadsData SSNone d
+ssPadsData d = (d, SSNone)
 
 
 -- Pads Declaration
 --
 
-ssPadsDecl :: PadsDecl -> PadsDeclAnn SkipStrategy
+ssPadsDecl :: PadsDecl -> (PadsDecl, SkipStrategy)
 -- type aliases
-ssPadsDecl ptd@(PadsDeclType _ _ _ (getAnn . ssPadsTy -> SSFixed n)) =
-  annPadsDecl (SSFixed n) ptd
+ssPadsDecl ptd@(PadsDeclType n as p (ssPadsTy -> tau)) =
+  (ptd, snd tau)
 
-ssPadsDecl t = annPadsDecl SSNone t
-
-{-
-data PadsDecl = PadsDeclType   String [String] (Maybe Pat) PadsTy
-              | PadsDeclData   String [String] (Maybe Pat) PadsData [QString]
-              | PadsDeclNew    String [String] (Maybe Pat) BranchInfo [QString]
-              | PadsDeclObtain String [String] PadsTy Exp
--}
+ssPadsDecl t = (t, SSNone)
 
 
+-- | Optimise a skip strategy
+optimise :: (PadsTy, SkipStrategy) -> (PadsTy, SkipStrategy)
+optimise (ty, (SSSeq [])) = (ty, SSFixed 0)
+optimise (ty, (SSSeq [(_, SSFixed n)])) = (ty, SSFixed n)
+optimise (ty, (SSSeq ((_, SSFixed 0):ss))) =
+  optimise (ty, (SSSeq ss))
+optimise (ty, (SSSeq ((ty', SSFixed n):(_, SSFixed m):rest))) =
+  case optimise (PTyvar "BOGUS", (SSSeq rest)) of
+    (_, (SSSeq ss)) -> (ty, SSSeq ((ty', SSFixed (n + n)):ss))
+    (_, (SSFixed k)) -> (ty, SSFixed (n + m + k))
+    ss -> (ty, SSSeq [(ty', SSFixed (n + m)), ss])
 
---
--- Helper Functions
---
+-- fuse lists. We can drop the inner list type, because the elements
+-- are the only things that take up actual space on disk.
+optimise (ty, (SSSeq ((_, SSSeq ss1):ss2))) =
+  optimise (ty, SSSeq $ ss1 ++ ss2)
 
-optimise :: SkipStrategy -> SkipStrategy
-optimise (SSSeq []) = SSFixed 0
-optimise (SSSeq [SSFixed n]) = SSFixed n
-optimise (SSSeq ((SSFixed 0):ss)) = optimise (SSSeq ss)
-optimise (SSSeq ((SSFixed n):(SSFixed m):rest) ) =
-  case optimise (SSSeq rest) of
-    (SSSeq ss) -> SSSeq ((SSFixed (n + n)):ss)
-    (SSFixed k) -> SSFixed (n + m + k)
-    ss -> SSSeq [SSFixed (n + m), ss]
-optimise (SSSeq ((SSSeq ss1):ss2)) = optimise . SSSeq $ ss1 ++ ss2
-optimise (SSSeq (s:ss)) =
-  case optimise (SSSeq ss) of
-    (SSSeq ss') -> SSSeq (s:ss')
-    ss' -> SSSeq [s, ss']
+optimise (ty, (SSSeq (s:ss))) =
+  case optimise (PTyvar "BOGUS", (SSSeq ss)) of
+    (_, SSSeq ss') -> (ty, SSSeq (s:ss'))
+    ss' -> (ty, SSSeq [s, ss'])
 optimise ss = ss
 
 -- for now, just handles the literal case, but eventually it would be nice
@@ -159,8 +155,8 @@ evalIntExp :: Exp -> Maybe Int
 evalIntExp (LitE (IntegerL n)) = Just . fromIntegral $ n
 evalIntExp _ = Nothing
 
-isFixedWidth :: Annotation a => a SkipStrategy -> Bool
-isFixedWidth (getAnn -> (SSFixed _)) = True
+isFixedWidth :: (a, SkipStrategy) -> Bool
+isFixedWidth (_, (SSFixed _)) = True
 isFixedWidth _ = False
 
 fixedPrim :: String -> Maybe Int
@@ -171,7 +167,9 @@ fixedPrim _ = Nothing
 fixedLit :: Exp -> Maybe Int
 fixedLit (LitE (CharL _)) = Just 1
 fixedLit (AppE (ConE con) (LitE (StringL s))) | nameBase con == "RE" =
-    if s =~ "[ a-zA-Z0-9]*" then Just . length $ s else Nothing
+    if (s =~ "[ a-zA-Z0-9]*" :: String) == s
+        then Just . length $ s
+    else Nothing
 fixedLit _ = Nothing
 
 $(deriveLift ''SkipStrategy)
