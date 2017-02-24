@@ -122,7 +122,7 @@ derives
 -------------------------
 
 ptype :: Env -> Parser PadsTy
-ptype env 
+ptype env
   =  constrain env
  <|> obtain env
  <|> partition env
@@ -431,10 +431,10 @@ p << q = do {x<-p;q;return x}
 
 lexer :: PT.TokenParser ()
 lexer = PT.makeTokenParser (haskellStyle 
-  { reservedOpNames = ["=", "=>", "{", "}", "::", "<|", "|>", "|", reMark, "." ],
+  { reservedOpNames = ["=", "{", "}", "::", "<|", "|>", "|", reMark, "." ],
     reservedNames   = ["data", "type", "newtype", "old", "existing", "deriving",
                        "using", "where", "terminator", "length", "of", "from",
-                       "case", "constrain", "obtain", "partition","value" ]})
+                       "case", "constrain", "obtain", "partition", "value"]})
 
 whiteSpace    = PT.whiteSpace  lexer
 identifier    = PT.identifier  lexer

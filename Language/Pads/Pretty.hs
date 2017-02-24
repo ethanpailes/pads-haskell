@@ -22,20 +22,25 @@ import Language.Pads.RegExp
 
 
 instance Pretty PadsDecl where
-    ppr (PadsDeclType con vars pat padsty) = text "type" <+> (ppr_decl_lhs con vars pat) <+> text "=" <+> ppr padsty 
-    ppr (PadsDeclData con vars pat padsrhs cons) = text "data" <+> (ppr_decl_lhs con vars pat) <+> text "=" 
-                                                   <+> ppr padsrhs <> ppr_derives cons 
-    ppr (PadsDeclNew  con vars pat branchInfo cons) = text "newtype" <+> (ppr_decl_lhs con vars pat) <+> text "=" 
-                                                   <+> ppr branchInfo <> ppr_derives cons
+    ppr (PadsDeclType con vars pat padsty) =
+      text "type" <+> (ppr_decl_lhs con vars pat) <+> text "=" <+> ppr padsty
+    ppr (PadsDeclData con vars pat padsrhs cons) =
+      text "data" <+> (ppr_decl_lhs con vars pat) <+> text "="
+                <+> ppr padsrhs <> ppr_derives cons
+    ppr (PadsDeclNew  con vars pat branchInfo cons) =
+      text "newtype" <+> (ppr_decl_lhs con vars pat) <+> text "="
+                <+> ppr branchInfo <> ppr_derives cons
 
-ppr_decl_lhs id args patOpt = text id <> ppr_args args <> ppr_optArgPat patOpt
-ppr_derives cons = case cons of 
+ppr_decl_lhs id args patOpt = text id <> ppr_args args <> ppr_opt patOpt
+ppr_derives cons = case cons of
                         []  -> empty
                         [l] -> space <> text (qName l)
                         ls  -> space <> tuple (map (text . qName) cons)
 
-ppr_args args = case args of [] -> empty ; _ -> space <> (spread (map text args))
-            
+ppr_args args =
+  case args of
+    [] -> empty
+    _ -> space <> (spread (map text args))
 
 instance Pretty PadsData where
   ppr (PUnion branches) = ppr_branches branches
@@ -85,8 +90,12 @@ isAtomicTy _                = False
 
 
 instance Pretty PadsTy where
-    ppr (PConstrain pat ty exp)  = text "constrain" <+> ppr pat <+> text "::"  <+> ppr ty  <+> text "where" <+> ppr exp
-    ppr (PTransform sty dty exp) = text "transform" <+> ppr sty <+> text "=>" <+> ppr dty <+> text "using" <+> ppr exp
+    ppr (PConstrain pat ty exp) =
+      text "constrain" <+> ppr pat <+> text "::" <+> ppr ty
+         <+> text "where" <+> ppr exp
+    ppr (PTransform sty dty exp) =
+      text "obtain" <+> ppr dty <+> text "from" <+> ppr sty
+         <+> text "using" <+> ppr exp
     ppr (PList itemTy sepTy termTy) = ppr_padsList itemTy sepTy termTy
     ppr (PValue exp ty) = text "value" <+> ppr exp <+> text "::"  <+> ppr ty 
     ppr (PApp argTys expArgOpt) = spread (map ppr_alpha argTys) <> ppr_opt expArgOpt
@@ -97,10 +106,6 @@ instance Pretty PadsTy where
 
 instance Pretty TH.Pat where
   ppr = text . TH.pprint
-
-pprHpat pat = case pat of 
-  TH.TupP p -> ppr pat
-  otherwise -> parens (ppr pat)
 
 instance Pretty TH.Exp where
   ppr =  pprHexp
@@ -120,10 +125,10 @@ instance Pretty TermCond where
   ppr (LLen exp) = text "length"     <+> ppr exp
 
 
-ppr_padsList itemTy sepTyOpt termTyOpt = brackets  (ppr itemTy <> ppr_sep sepTyOpt)   <> ppr_opt termTyOpt
-  
+ppr_padsList itemTy sepTyOpt termTyOpt =
+  brackets  (ppr itemTy <> ppr_sep sepTyOpt)   <> ppr_opt termTyOpt
+
 ppr_opt opt = case opt of Nothing -> empty ; Just e -> (space <> ppr e)
-ppr_optArgPat pat = case pat of Nothing -> empty; Just e -> (space <> pprHpat e)
 
 ppr_optPred pred = case pred of Nothing -> empty; Just e -> (space <> text "where" <+> ppr e)
 
