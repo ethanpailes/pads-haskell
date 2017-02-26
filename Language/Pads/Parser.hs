@@ -64,7 +64,7 @@ padsDecls = option [] (many1 topDecl)
 
 topDecl :: Parser PadsDecl
 topDecl 
-  =  typeDecl <|> dataDecl <|> newDecl <|> obtainDecl
+  =  typeDecl <|> dataDecl <|> newDecl <|> obtainDecl <|> skinDecl
  <?> "Pads declaration keyword"
 
 typeDecl :: Parser PadsDecl
@@ -100,6 +100,15 @@ obtainDecl
        ; return (PadsDeclObtain id env rhs exp)
        } <?> "Pads transform type"
 
+skinDecl :: Parser PadsDecl
+skinDecl = do { reserved "skin"
+              ; id <- upper
+              ; targetType <- optionMaybe (reserved "for" >> upper)
+              ; reservedOp "="
+              ; pat <- parseSkinPat
+              ; return $ PadsDeclSkin id targetType pat
+              } <?> "Pads skin declaration"
+
 declLHS
   = do { id <- upper; env <- try $ many lower
        ; return (id,env)
@@ -116,6 +125,43 @@ derives
     (do { q <- qualUpper; return [q] }
     <|> parens (commaSep1 qualUpper))
 
+-------------------------
+-- PADS SKIN PATTERNS
+-------------------------
+
+parseSkinPat :: Parser PadsSkinPat
+parseSkinPat = do
+  pat <- parseSkinPat'
+  -- When you can clean up the generated AST right in the parser, and its
+  -- awesome.
+  case pat of
+    PSTupleP [p] -> return p
+    _ -> return pat
+
+parseSkinPat' :: Parser PadsSkinPat
+parseSkinPat' =  ((reserved "force" >> return PSForce)
+            <|> (reserved "defer" >> return PSDefer)
+            -- the constructor is factored out to avoid backtracking
+            <|> (upper >>= \con -> (parsePSRec con <|> parsePSCon con))
+            <|> PSTupleP <$> parens (parseSkinPat `sepBy` reservedOp ",")
+            <|> (angles upper >>= \skin -> return (PSSkin skin)))
+                  <?> "Pads skin pattern"
+
+parsePSCon :: String -> Parser PadsSkinPat
+parsePSCon con = (do
+  pats <- many parseSkinPat
+  return $ PSConP con pats)
+    <?> "Pads constructor pattern"
+
+parsePSRec :: String -> Parser PadsSkinPat
+parsePSRec con = do
+  fields <- braces $ parseField `sepBy` reservedOp ","
+  return $ PSRecP con fields
+    where parseField = do
+              name <- lower
+              reservedOp "="
+              pat <- parseSkinPat
+              return (name, pat)
 
 -------------------------
 -- PADS TYPES
@@ -432,9 +478,13 @@ p << q = do {x<-p;q;return x}
 lexer :: PT.TokenParser ()
 lexer = PT.makeTokenParser (haskellStyle 
   { reservedOpNames = ["=", "{", "}", "::", "<|", "|>", "|", reMark, "." ],
-    reservedNames   = ["data", "type", "newtype", "old", "existing", "deriving",
+    reservedNames   = keywords })
+
+keywords :: [String]
+keywords = ["data", "type", "newtype", "old", "existing", "deriving",
                        "using", "where", "terminator", "length", "of", "from",
-                       "case", "constrain", "obtain", "partition", "value"]})
+                       "case", "constrain", "obtain", "partition", "value",
+                       "force", "defer", "skin", "for"]
 
 whiteSpace    = PT.whiteSpace  lexer
 identifier    = PT.identifier  lexer
@@ -448,5 +498,6 @@ commaSep1     = PT.commaSep1   lexer
 parens        = PT.parens      lexer
 braces        = PT.braces      lexer
 brackets      = PT.brackets    lexer
+angles        = PT.angles      lexer
 
 

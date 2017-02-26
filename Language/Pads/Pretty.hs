@@ -30,6 +30,10 @@ instance Pretty PadsDecl where
     ppr (PadsDeclNew  con vars pat branchInfo cons) =
       text "newtype" <+> (ppr_decl_lhs con vars pat) <+> text "="
                 <+> ppr branchInfo <> ppr_derives cons
+    ppr (PadsDeclSkin name ty pat) =
+      text "skin" <+> text name
+      <+> maybe mempty (\tyName -> text "for" <+> text tyName) ty
+      <+> text "=" <+> text "TODO PATTERN"
 
 ppr_decl_lhs id args patOpt = text id <> ppr_args args <> ppr_opt patOpt
 ppr_derives cons = case cons of
@@ -41,6 +45,18 @@ ppr_args args =
   case args of
     [] -> empty
     _ -> space <> (spread (map text args))
+
+
+instance Pretty PadsSkinPat where
+  ppr PSForce = text "force"
+  ppr PSDefer = text "defer"
+  ppr (PSTupleP ps) = parens . commasep . map ppr $ ps
+  ppr (PSConP name ps) = text name <+> sep (map (parens . ppr) ps)
+  ppr (PSSkin skin) = angles $ text skin
+  ppr (PSRecP name fields) =
+    text name <+> (braces . commasep . map
+                   (\(name, pat) -> text name <+> text "=" <+> ppr pat)) fields
+
 
 instance Pretty PadsData where
   ppr (PUnion branches) = ppr_branches branches

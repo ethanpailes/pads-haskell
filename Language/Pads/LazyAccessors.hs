@@ -27,25 +27,8 @@ import Language.Pads.CodeGen (genParseTy)
 import Data.Monoid ((<>))
 import Prelude as P
 
-import Language.Haskell.TH
+import Language.Haskell.TH hiding (compE)
 import Control.Exception
-
--- from First.hs
--- [pads| type WhiteSpace = (Int, '[ \t]+', Int) |]
-
--- just parse immediatly, cause we are already there
-whiteSpace_la_1 :: String -> ((Int, Base_md), String)
-whiteSpace_la_1 input =
-  let ((res, rest), flag) = int_parseM # padsSourceFromString input
-   in (res, padsSourceToString rest)
-
--- [pads| type  HexPair = (Phex32FW 2, ',', Phex32FW 3) |]
-
-hexPair_la_1 :: String -> ((Int, Base_md), String)
-hexPair_la_1 = phex32FW_parseS 2
-
--- hexPair_la_2 :: String -> ((Int, Base_md), String)
--- hexPair_la_2 input = phex32FW_parseS 3
 
 genLazyAccessor :: (PadsTy, SkipStrategy) -> String -> Q [Dec]
 genLazyAccessor ty baseName =
@@ -61,14 +44,18 @@ genTupleAccessor (PTuple taus, SSSeq skips) baseName n =
     input <- newName "input"
     skipFun <- fuseSS (PTuple (P.take (n - 1) taus), SSSeq (P.take (n - 1) skips))
     parseFun <- asParser . P.head . drop (n - 1) $ taus
-    let funNameJustSkip = (mkName (baseName ++ ('_' : show n) ++ "_S"))
-        funNameSkipAndParse = (mkName (baseName ++ ('_' : show n) ++ "_SP"))
+    let funNameJustSkip = mkName (baseName ++ ('_' : show n) ++ "_S")
+        funNameSkipAndParse = mkName (baseName ++ ('_' : show n) ++ "_SP")
         args = [VarP input]
         interestingInput = skipFun `AppE` (VarE input)
-        body = parseFun `AppE` interestingInput
     return $ [ FunD funNameJustSkip [Clause args (NormalB interestingInput) []]
-             , FunD funNameSkipAndParse [Clause args (NormalB body) []]
+             , ValD (VarP funNameSkipAndParse)
+                    (NormalB (parseFun `compE` (VarE funNameJustSkip))) []
              ]
+
+
+compE :: Exp -> Exp -> Exp
+compE e1 e2 = UInfixE e1 (VarE (mkName ".")) e2
 
 
 --

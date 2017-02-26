@@ -97,7 +97,8 @@ Library
                     old-locale >= 1.0.0.6,
                     time >= 1.4.2,
                     th-lift >= 0.7,
-                    th-orphans >= 0.13
+                    th-orphans >= 0.13,
+                    QuickCheck >= 2.8.1
 
   -- Modules not exported by this package.
   Other-modules:       Language.Pads.CodeGen,
@@ -147,7 +148,10 @@ Test-Suite test-pads
 
     -- Test Modules
     LazyOptTest,
-    LazyOptTestValues
+    LazyOptTestValues,
+    SkinParseTest,
+    TestUtils,
+    PropTesting
 
   -- Packages needed in order to build this package.
   build-depends:    base >= 4.7 && < 5,
@@ -166,5 +170,6 @@ Test-Suite test-pads
                     old-locale >= 1.0.0.6,
                     time >= 1.4.2,
                     th-lift >= 0.7,
-                    th-orphans >= 0.13
+                    th-orphans >= 0.13,
+                    QuickCheck >= 2.8.1
   

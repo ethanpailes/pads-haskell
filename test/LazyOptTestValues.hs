@@ -12,9 +12,7 @@ import Language.Haskell.TH (Exp(..), Lit(..))
 import Language.Pads.LazyOpt
 import Language.Pads.CodeGen (PadsCodeGenMetadata(..))
 import Language.Haskell.TH.Syntax (Strict(..), mkName)
-
-testParse :: String -> Either ParseError [PadsDecl]
-testParse = parsePadsDecls "test_src" 0 0
+import TestUtils
 
 fixedWidthString :: PadsTy
 fixedWidthString =

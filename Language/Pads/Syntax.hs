@@ -31,8 +31,8 @@ data PadsDecl = PadsDeclType   String [String] (Maybe Pat) PadsTy
               | PadsDeclObtain String [String] PadsTy Exp
               | PadsDeclSkin
                   String -- ^ the name of skin
-                  PadsSkinPat -- ^ the pattern to apply
                   (Maybe String) -- ^ the PADS type to apply the skin to
+                  PadsSkinPat -- ^ the pattern to apply
    deriving (Eq, Data, Typeable, Show)
 
 
