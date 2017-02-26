@@ -29,18 +29,21 @@ data PadsDecl = PadsDeclType   String [String] (Maybe Pat) PadsTy
               | PadsDeclData   String [String] (Maybe Pat) PadsData [QString]
               | PadsDeclNew    String [String] (Maybe Pat) BranchInfo [QString]
               | PadsDeclObtain String [String] PadsTy Exp
+              -- | arg1: the name of skin,
+              --   arg2: the PADS type to apply the skin to,
+              --   arg3: the pattern to apply
               | PadsDeclSkin
-                  String -- ^ the name of skin
-                  (Maybe String) -- ^ the PADS type to apply the skin to
-                  PadsSkinPat -- ^ the pattern to apply
+                  String
+                  (Maybe String)
+                  PadsSkinPat
    deriving (Eq, Data, Typeable, Show)
 
 
 -- | A pads skin tells PADS which values to force during
 --   parsing. One can be declared like
---   `skin SkinName SkinPattern for SomePadsType`
+--   `skin SkinName for SomePadsType = <pattern>`
 --   or just with
---   `skin SkinName SkinPattern`
+--   `skin SkinName = <pattern>`
 --   if you don't want to apply the skin to a type just yet
 data PadsSkinPat = PSForce -- ^ Force the type. Terminal.
                  | PSDefer -- ^ Defer the type for later parsing. Terminal.
