@@ -31,7 +31,8 @@ import Data.Char
 import qualified Data.Map as M
 import qualified Data.List as List
 import qualified Data.Maybe as Maybe
-import Language.Pads.LazyOpt (SkipStrategy(..), ssPadsDecl)
+import Language.Pads.LazyOpt (SkipStrategy(..), ssPadsDecl,
+                              PadsCodeGenMetadata(..), padsCGMetadataPrefix)
 import Control.Monad
 
 import Debug.Trace
@@ -40,12 +41,6 @@ type BString = S.RawStream
 
 type Derivation = Dec -> Q [Dec]
 
-data PadsCodeGenMetadata = PadsCodeGenMetadata {
-       pcg_METADATA_skipStrategy :: (PadsDecl, SkipStrategy)
-    }
-  deriving(Eq, Show)
-padsCGMetadataPrefix :: String
-padsCGMetadataPrefix = "pads_CG_METADATA_"
 
 make_pads_declarations :: [PadsDecl] -> Q [Dec]
 make_pads_declarations = make_pads_declarations' (const $ return [])
@@ -104,13 +99,23 @@ genPadsDecl derivation decl@(PadsDeclObtain name args padsTy exp) = do
   let sigs = mkPadsSignature name args Nothing
   return $ mdDec ++ parseM ++ parseS ++ printFL ++ def ++ sigs ++ meta
 
+genPadsDecl derivation (PadsDeclSkin skinName ty pat) = do
+  let mdName = mkName $ padsCGMetadataPrefix ++ skinName
+  e <- [| PadsCodeGenSkinMetadata {
+           pcg_METADATA_skin = $(THS.lift pat)
+       } |]
+  case ty of
+    -- TODO(ethan): generate the skip strategy stuff here
+    Just tyName -> return [ValD (VarP mdName) (NormalB e) []]
+    Nothing -> return [ValD (VarP mdName) (NormalB e) []]
+
 genPadsDeclCodeGenMetadata :: String -> PadsDecl -> Q [Dec]
 genPadsDeclCodeGenMetadata name dec = do
   let mdName = mkName $ padsCGMetadataPrefix ++ name
   e <- [| PadsCodeGenMetadata {
-                pcg_METADATA_skipStrategy = $(THS.lift . ssPadsDecl $ dec)
+                pcg_METADATA_skipStrategy = $(ssPadsDecl dec)
        } |]
-  return . return $ ValD (VarP mdName) (NormalB e) []
+  return $ [ValD (VarP mdName) (NormalB e) []]
 
 patType :: Pat -> Type
 patType p = case p of

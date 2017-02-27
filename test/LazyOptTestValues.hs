@@ -5,14 +5,39 @@
 module LazyOptTestValues where
 
 import Language.Pads.Padsc
-import Language.Pads.Parser
-import Text.Parsec.Error
 import Language.Pads.Syntax
-import Language.Haskell.TH (Exp(..), Lit(..))
+import Language.Haskell.TH (Exp(..), Lit(..), Q)
 import Language.Pads.LazyOpt
-import Language.Pads.CodeGen (PadsCodeGenMetadata(..))
 import Language.Haskell.TH.Syntax (Strict(..), mkName)
 import TestUtils
+
+--
+-- utils
+--
+
+import Test.HUnit.Base
+
+-- : takes the label, the input type and the predicate function as an expression
+--   returns a `Test` as an expression
+fixedTestTy :: String -> PadsTy -> Q Exp -> Q Exp
+fixedTestTy l ty p =
+  [| TestLabel l . TestCase . assert . $p . optimise $ $(ssPadsTy ty) |]
+
+-- : takes the label, the input type and the predicate function as an expression
+--   returns a `Test` as an expression
+fixedTestDecl :: String -> PadsDecl -> Q Exp -> Q Exp
+fixedTestDecl l ty p =
+  [| TestLabel l . TestCase . assert . $p $ $(ssPadsDecl ty) |]
+
+-- : takes the label, the input type and the predicate function as an expression
+--   returns a `Test` as an expression
+fixedTestData :: String -> PadsData -> Q Exp -> Q Exp
+fixedTestData l ty p =
+  [| TestLabel l . TestCase . assert . $p $ $(ssPadsData ty) |]
+
+--
+-- test values
+--
 
 fixedWidthString :: PadsTy
 fixedWidthString =
@@ -45,6 +70,7 @@ fixedTupleAnn :: (PadsTy, SkipStrategy)
 fixedTupleAnn = (ty, ss)
   where (PadsDeclType _ _ _ ty, ss) =
           pcg_METADATA_skipStrategy pads_CG_METADATA_AFixedWidthTuple
+
 
 fixedTuple' :: PadsTy
 fixedTuple' = ty
