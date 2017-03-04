@@ -13,19 +13,12 @@ import Data.List (intersperse)
 import Language.Haskell.TH
 import Language.Haskell.TH.Syntax as THS
 import Language.Haskell.TH.Lift (deriveLift)
+import Data.Data
+import Data.IORef
+import System.IO.Unsafe
 
+import qualified Data.Map.Strict as Map
 
--- piggy-back the lookup environment on haskell's value environement
-data PadsCodeGenMetadata = PadsCodeGenMetadata {
-        pcg_METADATA_skipStrategy :: (PadsDecl, SkipStrategy)
-    }
-    | PadsCodeGenSkinMetadata {
-        pcg_METADATA_skin :: PadsSkinPat
-    }
-  deriving(Eq, Show)
-
-padsCGMetadataPrefix :: String
-padsCGMetadataPrefix = "pads_CG_METADATA_"
 
 ----------------------------------------------------------------------
 -- Analysis Step
@@ -57,12 +50,15 @@ applySSFun _ _ =
 --
 
 -- | returns an expression of type (PadsTy, SkipStrategy)
-ssPadsTy :: PadsTy -> Q Exp
-ssPadsTy ty@(PTycon [fixedPrim -> Just n]) = [| (ty, (SSFixed n)) |]
+ssPadsTy :: PadsTy -> Q (PadsTy, SkipStrategy)
+ssPadsTy ty@(PTycon [fixedPrim -> Just n]) = return (ty, (SSFixed n))
 ssPadsTy ty@(PTycon tc) = do
-  let ss = [| snd . pcg_METADATA_skipStrategy $
-              $(return . VarE . mkName $ padsCGMetadataPrefix ++ qName tc)|]
-  [| (ty, $ss) |]
+  ssEnv <- pcgGetSSEnv
+  case tc `Map.lookup` ssEnv of
+    (Just (_, ss)) -> return (ty, ss)
+    Nothing -> do
+      ty' <- pcgGetTy tc
+      ssPadsTy ty'
 
 {- this needs to handle the expression arg
 ssPadsTy ty@(PApp (PTycon tc : args) _) = do
@@ -77,7 +73,7 @@ ssPadsTy ty@(PApp (PTycon tc : args) _) = do
   -}
 
 
-ssPadsTy ty = THS.lift $ ssPadsTy' ty -- lets be typesafe when we can
+ssPadsTy ty = return $ ssPadsTy' ty -- lets be typesafe when we can
 
 
 -- | returns a list of expressions of type SkipStrategy
@@ -144,53 +140,52 @@ ssPadsTy' t = (t, SSNone)
 --
 
 -- | returns an expression of type (ConstrArg, SkipStrategy)
-ssConstArg :: ConstrArg -> Q Exp
-ssConstArg ca@(_, (ssPadsTy -> ty)) = do
-  ss <- [| let (_, x) = $ty in x |]
-  [| (ca, ss) |]
+ssConstArg :: ConstrArg -> Q (ConstrArg, SkipStrategy)
+ssConstArg ca@(_, ty) = do
+  (_, t) <- ssPadsTy ty
+  return (ca, t)
 
 -- | returns an expression of type (PadsData, SkipStrategy)
-ssPadsData :: PadsData -> Q Exp -- : (PadsData, SkipStrategy)
+ssPadsData :: PadsData -> Q (PadsData, SkipStrategy)
 
 -- unions are fixed width iff all branches are fixed width
-ssPadsData u@(PUnion branches) =
-  [| case sequence $(branchSizes) of
-      (Just (b:bs)) -> if all (==b) bs
-                         then (u, SSFixed b)
-                         else (u, SSNone)
-      (Just []) -> (u, SSFixed 0)
-      Nothing -> (u, SSNone)
-   |]
-  where branchSizes = ListE <$> mapM branchSize branches
-        -- : Q (Maybe Int)
-        branchSize :: BranchInfo -> Q Exp
+ssPadsData u@(PUnion branches) = do
+  bs <- branchSizes
+  return $ case bs of
+              (Just (b:bs)) -> if all (==b) bs
+                                then (u, SSFixed b)
+                                else (u, SSNone)
+              (Just []) -> (u, SSFixed 0)
+              Nothing -> (u, SSNone)
+  where branchSizes :: Q (Maybe [Int])
+        branchSizes = sequence <$> mapM branchSize branches
+        branchSize :: BranchInfo -> Q (Maybe Int)
         branchSize (BRecord _ fieldInfo exp) = do
             -- fieldSizes : Q [Maybe Int]
             fieldSizes <-
-                mapM (\(_, (_, ssPadsTy -> ty), _) -> do
-                          ss <- [| let (_, ss') = $(ty)
-                                    in case ss' of
-                                        (SSFixed n) -> Just n
-                                        SSNone -> Nothing
-                                |]
-                          return ss)
+                mapM (\(_, (_, ty), _) -> do
+                         (_, t) <- optimise <$> ssPadsTy ty
+                         return (case t of
+                                  (SSFixed n) -> Just n
+                                  _ -> Nothing))
                 fieldInfo
-            [| foldr (liftM2 (+)) (Just 0) $(return $ ListE fieldSizes) |]
+            return $ foldr (liftM2 (+)) (Just 0) fieldSizes
   -- TODO(ethan): BConstr branch
-        branchSize _ = [| Nothing |]
+        branchSize _ = return Nothing
 
-ssPadsData d = [| (d, SSNone) |]
+ssPadsData d = return (d, SSNone)
 
 
 -- Pads Declaration
 --
 
-ssPadsDecl :: PadsDecl -> Q Exp -- : (PadsDecl, SkipStrategy)
+ssPadsDecl :: PadsDecl -> Q (PadsDecl, SkipStrategy)
 -- type aliases
-ssPadsDecl ptd@(PadsDeclType n as p (ssPadsTy -> tau)) =
-  [| (ptd, let (_, x) = $tau in x) |]
+ssPadsDecl ptd@(PadsDeclType n as p tau) = do
+  (_, t) <- ssPadsTy tau
+  return (ptd, t)
 
-ssPadsDecl t = [| (t, SSNone) |]
+ssPadsDecl t = return (t, SSNone)
 
 
 -- | Optimise a skip strategy
@@ -238,5 +233,135 @@ fixedLit (AppE (ConE con) (LitE (StringL s))) | nameBase con == "RE" =
         then Just . length $ s
     else Nothing
 fixedLit _ = Nothing
+
+
+
+----------------------------------------------------------------------
+-- environment hack
+----------------------------------------------------------------------
+
+-- piggy-back the lookup environment on haskell's value environement
+-- TODO: delete
+{-
+data PadsCodeGenMetadata = PadsCodeGenMetadata {
+        pcg_METADATA_skipStrategy :: (PadsDecl, SkipStrategy)
+    }
+    | PadsCodeGenSkinMetadata {
+        pcg_METADATA_skin :: PadsSkinPat
+    }
+  deriving(Eq, Show)
+
+padsCGMetadataPrefix :: String
+padsCGMetadataPrefix = "pads_CG_METADATA_"
+-}
+
+type Env a = Map.Map QString a
+
+data PadsCGM = PadsCGM {
+      pcg_skipStrategyEnv :: Env (PadsDecl, SkipStrategy)
+    , pcg_typeEnv :: Env PadsTy
+    , pcg_skinEnv :: Env PadsSkinPat
+    }
+  deriving(Eq, Show)
+
+
+{-# NOINLINE padsCodeGenEnv #-}
+padsCodeGenEnv :: IORef PadsCGM
+padsCodeGenEnv =
+  unsafePerformIO $ newIORef PadsCGM {
+    pcg_skipStrategyEnv =
+       Map.fromList [
+        (["Int"], (PadsDeclType "Int" [] Nothing (PTycon ["Int"]), SSNone))
+       ]
+  , pcg_typeEnv =
+       Map.fromList [
+        (["Int"], PTycon ["Int"])
+      ]
+  , pcg_skinEnv = Map.empty
+  }
+
+-- | Add a skip strategy annotation to the pads codegen environment
+pcgPutSS :: QString -> (PadsDecl, SkipStrategy) -> Q ()
+pcgPutSS name ss =
+  qRunIO $ modifyIORef padsCodeGenEnv
+     (\pcgm -> pcgm {
+         pcg_skipStrategyEnv = Map.insert name ss (pcg_skipStrategyEnv pcgm)
+     })
+
+-- | Looks up a given skip strategy in the pads codegen environment.
+--     Makes use of the MonadFail instance if one is not defined.
+pcgGetSS :: QString -> Q (PadsDecl, SkipStrategy)
+pcgGetSS name = do
+  env <- qRunIO $ readIORef padsCodeGenEnv
+  case name `Map.lookup` (pcg_skipStrategyEnv env) of
+    (Just ss) -> return ss
+    Nothing -> fail $ "SkipStrategy for Type: "
+                           ++ qName name ++ " is not defined!"
+
+-- | Add a skip strategy annotation to the pads codegen environment
+pcgPutTy :: QString -> PadsTy -> Q ()
+pcgPutTy name ss =
+  qRunIO $ modifyIORef padsCodeGenEnv
+     (\pcgm -> pcgm {
+         pcg_typeEnv = Map.insert name ss (pcg_typeEnv pcgm)
+     })
+
+-- | Looks up a given skip strategy in the pads codegen environment.
+--     Makes use of the MonadFail instance if one is not defined.
+pcgGetTy :: QString -> Q PadsTy
+pcgGetTy name = do
+  env <- qRunIO $ readIORef padsCodeGenEnv
+  case name `Map.lookup` (pcg_typeEnv env) of
+    (Just ss) -> return ss
+    Nothing -> fail $ "Type: " ++ qName name ++ " is not defined!"
+
+-- | Add a annotation to the pads codegen environment
+pcgPutSkin :: QString -> PadsSkinPat -> Q ()
+pcgPutSkin name ss =
+  qRunIO $ modifyIORef padsCodeGenEnv
+     (\pcgm -> pcgm {
+         pcg_skinEnv = Map.insert name ss (pcg_skinEnv pcgm)
+     })
+
+pcgGetTySS :: QString -> Q (PadsTy, SkipStrategy)
+pcgGetTySS name = do
+  env <- qRunIO $ readIORef padsCodeGenEnv
+  case name `Map.lookup` (pcg_skipStrategyEnv env) of
+    (Just (PadsDeclType _ _ _ ty, ss)) -> return (ty, ss)
+    _ ->
+      fail $ "Can't find skip strategy information for type:\n"
+             ++ show (qName name)
+             ++ "\nThis is likely a result of a bug in PADS."
+
+-- | Looks up a given skin in the pads codegen environment.
+--     Makes use of the MonadFail instance if one is not defined.
+pcgGetSkin :: QString -> Q PadsSkinPat
+pcgGetSkin name = do
+  env <- qRunIO $ readIORef padsCodeGenEnv
+  case name `Map.lookup` (pcg_skinEnv env) of
+    (Just s) -> return s
+    Nothing -> fail $ "Skin: " ++ qName name ++ " is not defined!"
+
+-- | get the skip strat env
+pcgGetSSEnv :: Q (Env (PadsDecl, SkipStrategy))
+pcgGetSSEnv = do
+  env <- qRunIO $ readIORef padsCodeGenEnv
+  return $ pcg_skipStrategyEnv env
+
+-- | get the skin env
+pcgGetSkinEnv :: Q (Env PadsSkinPat)
+pcgGetSkinEnv = do
+  env <- qRunIO $ readIORef padsCodeGenEnv
+  return $ pcg_skinEnv env
+
+-- | get the ty env
+pcgGetTyEnv :: Q (Env PadsTy)
+pcgGetTyEnv = do
+  env <- qRunIO $ readIORef padsCodeGenEnv
+  return $ pcg_typeEnv env
+
+----------------------------------------------------------------------
+-- TH goes at the end of the file to avoid breaking mutual recursion
+----------------------------------------------------------------------
 
 $(deriveLift ''SkipStrategy)

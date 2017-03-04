@@ -108,8 +108,7 @@ Library
                        Language.Pads.PadsParser,
                        Language.Pads.PadsPrinter,
                        Language.Pads.LazyList,
-                       Language.Pads.LazyOpt,
-                       Language.Pads.LazyAccessors
+                       Language.Pads.LazyOpt
 
   -- Extra tools (e.g. alex, hsc2hs, ...) needed to build the source.
   -- Build-tools:         
@@ -144,7 +143,6 @@ Test-Suite test-pads
     Language.Pads.TH,
     Language.Pads.Testing,
     Language.Pads.LazyOpt,
-    Language.Pads.LazyAccessors,
 
     -- Test Modules
     LazyOptTest,

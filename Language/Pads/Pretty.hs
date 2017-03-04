@@ -33,7 +33,7 @@ instance Pretty PadsDecl where
     ppr (PadsDeclSkin name ty pat) =
       text "skin" <+> text name
       <+> maybe mempty (\tyName -> text "for" <+> text tyName) ty
-      <+> text "=" <+> text "TODO PATTERN"
+      <+> text "=" <+> ppr pat
 
 ppr_decl_lhs id args patOpt = text id <> ppr_args args <> ppr_opt patOpt
 ppr_derives cons = case cons of
@@ -51,10 +51,10 @@ instance Pretty PadsSkinPat where
   ppr PSForce = text "force"
   ppr PSDefer = text "defer"
   ppr (PSTupleP ps) = parens . commasep . map ppr $ ps
-  ppr (PSConP name ps) = text name <+> sep (map (parens . ppr) ps)
-  ppr (PSSkin skin) = angles $ text skin
+  ppr (PSConP name ps) = text (qName name) <+> sep (map (parens . ppr) ps)
+  ppr (PSSkin skin) = angles . text . qName $ skin
   ppr (PSRecP name fields) =
-    text name <+> (braces . commasep . map
+    text (qName name) <+> (braces . commasep . map
                    (\(name, pat) -> text name <+> text "=" <+> ppr pat)) fields
 
 

@@ -49,12 +49,12 @@ data PadsSkinPat = PSForce -- ^ Force the type. Terminal.
                  | PSDefer -- ^ Defer the type for later parsing. Terminal.
 
                  -- pattern stuff
-                 | PSConP String [PadsSkinPat] -- ^ constructor patterns
-                 | PSRecP String [(String, PadsSkinPat)] -- ^ record patterns
+                 | PSConP QString [PadsSkinPat] -- ^ constructor patterns
+                 | PSRecP QString [(String, PadsSkinPat)] -- ^ record patterns
                  | PSTupleP [PadsSkinPat] -- ^ tuple patterns
 
                  -- | A reference to a previously defined skin
-                 | PSSkin String
+                 | PSSkin QString
    deriving (Eq, Data, Typeable, Show)
 
 

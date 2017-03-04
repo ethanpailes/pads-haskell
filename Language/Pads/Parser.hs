@@ -142,21 +142,23 @@ parseSkinPat' :: Parser PadsSkinPat
 parseSkinPat' =  ((reserved "force" >> return PSForce)
             <|> (reserved "defer" >> return PSDefer)
             -- the constructor is factored out to avoid backtracking
-            <|> (upper >>= \con -> (parsePSRec con <|> parsePSCon con))
             <|> PSTupleP <$> parens (parseSkinPat `sepBy` reservedOp ",")
-            <|> (angles upper >>= \skin -> return (PSSkin skin)))
+            <|> (qname >>= \con -> (parsePSRec con <|> parsePSCon con))
+            <|> (angles qname >>= \skin -> return (PSSkin skin)))
                   <?> "Pads skin pattern"
+                 where qname = upper `sepBy1` reservedOp "."
 
-parsePSCon :: String -> Parser PadsSkinPat
+parsePSCon :: QString -> Parser PadsSkinPat
 parsePSCon con = (do
   pats <- many parseSkinPat
   return $ PSConP con pats)
     <?> "Pads constructor pattern"
 
-parsePSRec :: String -> Parser PadsSkinPat
-parsePSRec con = do
-  fields <- braces $ parseField `sepBy` reservedOp ","
-  return $ PSRecP con fields
+parsePSRec :: QString -> Parser PadsSkinPat
+parsePSRec con = (do
+  fields <- braces $ parseField `sepBy1` reservedOp ","
+  return $ PSRecP con fields)
+    <?> "Pads record pattern"
     where parseField = do
               name <- lower
               reservedOp "="

@@ -22,7 +22,6 @@ import Language.Pads.PadsParser
 import Language.Pads.RegExp
 import Data.Maybe
 import Language.Pads.Syntax (PadsDecl(..), PadsTy(..))
-import Language.Pads.LazyOpt (PadsCodeGenMetadata(..), SkipStrategy(..))
 
 import qualified Language.Pads.Source as S
 import qualified Language.Pads.Errors as E
@@ -102,12 +101,6 @@ instance Pads1 () Int Base_md where
 
 int_printFL :: PadsPrinter (Int, Base_md)
 int_printFL (i, bmd) = fshow i
-
-pads_CG_METADATA_Int :: PadsCodeGenMetadata
-pads_CG_METADATA_Int = PadsCodeGenMetadata {
-        pcg_METADATA_skipStrategy =
-          (PadsDeclType "Int" [] Nothing (PTycon ["Int"]), SSNone)
-    }
 
 -----------------------------------------------------------------
 

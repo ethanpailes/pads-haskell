@@ -1,12 +1,10 @@
 
 module TestUtils where
 
-import Language.Pads.Padsc
 import Language.Pads.Parser
 import Language.Pads.Syntax
 import Text.Parsec.Error
 
-import Test.HUnit.Text
 import Test.HUnit.Base
 import qualified Test.QuickCheck as QC
 import Control.Monad (liftM)
@@ -29,5 +27,5 @@ propertyTests tests =
                      putStrLn tag >>
                      QC.quickCheckWithResult
                         (QC.stdArgs { QC.maxSuccess = 50
-                                    , QC.maxSize = 25}) test))
+                                    , QC.maxSize = 20 }) test))
                 tests

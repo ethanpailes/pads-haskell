@@ -18,11 +18,17 @@ import Language.Pads.Generic
 import Language.Pads.PadsParser
 import Language.Pads.CoreBaseTypes
 import Language.Pads.TH
+import Language.Pads.LazyOpt ( pcgGetSSEnv, pcgGetSkinEnv
+                             , Env, SkipStrategy(..), pcgPutSkin
+                             , pcgGetSS, pcgGetSkin, pcgPutSS
+                             , ssPadsDecl, pcgGetTy, pcgPutTy
+                             , pcgGetTyEnv, pcgGetTySS
+                             )
 import qualified Language.Pads.Errors as E
 import qualified Language.Pads.Source as S
 import Language.Pads.PadsPrinter
 
-import Language.Haskell.TH
+import Language.Haskell.TH hiding (compE)
 import qualified Language.Haskell.TH.Syntax as THS
 import Language.Haskell.Syntax
 
@@ -31,11 +37,11 @@ import Data.Char
 import qualified Data.Map as M
 import qualified Data.List as List
 import qualified Data.Maybe as Maybe
-import Language.Pads.LazyOpt (SkipStrategy(..), ssPadsDecl,
-                              PadsCodeGenMetadata(..), padsCGMetadataPrefix)
 import Control.Monad
-
 import Debug.Trace
+import qualified Data.Map.Strict as Map
+import Prelude as P
+import Control.Exception (assert)
 
 type BString = S.RawStream
 
@@ -46,7 +52,10 @@ make_pads_declarations :: [PadsDecl] -> Q [Dec]
 make_pads_declarations = make_pads_declarations' (const $ return [])
 
 make_pads_declarations' :: Derivation -> [PadsDecl] -> Q [Dec]
-make_pads_declarations' derivation ds = fmap concat (mapM (genPadsDecl derivation) ds)
+make_pads_declarations' derivation ds = do
+  mainCode <- fmap concat (mapM (genPadsDecl derivation) ds)
+  lazyCode <- genLazyParserDecls ds
+  return $ mainCode ++ lazyCode
 
 
 ----------------------------------------------------------------------------
@@ -61,9 +70,8 @@ genPadsDecl derivation decl@(PadsDeclType name args pat padsTy) = do
   parseS  <- genPadsParseS name args pat
   printFL <- genPadsPrintFL name args pat padsTy
   def <- genPadsDef name args pat padsTy
-  meta <- genPadsDeclCodeGenMetadata name decl
   let sigs = mkPadsSignature name args (fmap patType pat)
-  return $ typeDecs ++ parseM ++ parseS ++ printFL ++ def ++ sigs ++ meta
+  return $ typeDecs ++ parseM ++ parseS ++ printFL ++ def ++ sigs
 
 genPadsDecl derivation decl@(PadsDeclData name args pat padsData derives) = do
   dataDecs <- mkDataRepMDDecl derivation name args padsData derives
@@ -71,11 +79,9 @@ genPadsDecl derivation decl@(PadsDeclData name args pat padsData derives) = do
   parseS <- genPadsParseS name args pat
   printFL <- genPadsDataPrintFL name args pat padsData
   def <- genPadsDataDef name args pat padsData
-  meta <- genPadsDeclCodeGenMetadata name decl
   let instances = mkPadsInstance name args (fmap patType pat)
   let sigs = mkPadsSignature name args (fmap patType pat)
   return $ dataDecs ++ parseM ++ parseS ++ printFL ++ def ++ instances ++ sigs
-           ++ meta
 
 genPadsDecl derivation decl@(PadsDeclNew name args pat branch derives) = do
   dataDecs <- mkNewRepMDDecl derivation name args branch derives
@@ -83,11 +89,9 @@ genPadsDecl derivation decl@(PadsDeclNew name args pat branch derives) = do
   parseS <- genPadsParseS name args pat
   printFL <- genPadsNewPrintFL name args pat branch
   def <- genPadsNewDef name args pat branch
-  meta <- genPadsDeclCodeGenMetadata name decl
   let instances = mkPadsInstance name args (fmap patType pat)
   let sigs = mkPadsSignature name args (fmap patType pat)
   return $ dataDecs ++ parseM ++ parseS ++ printFL ++ def ++ instances ++ sigs
-           ++ meta
 
 genPadsDecl derivation decl@(PadsDeclObtain name args padsTy exp) = do
   let mdDec = mkObtainMDDecl name args padsTy
@@ -95,27 +99,11 @@ genPadsDecl derivation decl@(PadsDeclObtain name args padsTy exp) = do
   parseS  <- genPadsParseS name args Nothing
   printFL <- genPadsObtainPrintFL name args padsTy exp
   def <- genPadsObtainDef name args padsTy exp
-  meta <- genPadsDeclCodeGenMetadata name decl
   let sigs = mkPadsSignature name args Nothing
-  return $ mdDec ++ parseM ++ parseS ++ printFL ++ def ++ sigs ++ meta
+  return $ mdDec ++ parseM ++ parseS ++ printFL ++ def ++ sigs
 
-genPadsDecl derivation (PadsDeclSkin skinName ty pat) = do
-  let mdName = mkName $ padsCGMetadataPrefix ++ skinName
-  e <- [| PadsCodeGenSkinMetadata {
-           pcg_METADATA_skin = $(THS.lift pat)
-       } |]
-  case ty of
-    -- TODO(ethan): generate the skip strategy stuff here
-    Just tyName -> return [ValD (VarP mdName) (NormalB e) []]
-    Nothing -> return [ValD (VarP mdName) (NormalB e) []]
+genPadsDecl derivation (PadsDeclSkin _ _ _) = return []
 
-genPadsDeclCodeGenMetadata :: String -> PadsDecl -> Q [Dec]
-genPadsDeclCodeGenMetadata name dec = do
-  let mdName = mkName $ padsCGMetadataPrefix ++ name
-  e <- [| PadsCodeGenMetadata {
-                pcg_METADATA_skipStrategy = $(ssPadsDecl dec)
-       } |]
-  return $ [ValD (VarP mdName) (NormalB e) []]
 
 patType :: Pat -> Type
 patType p = case p of
@@ -975,5 +963,202 @@ appT2 f x y = AppT (AppT f x) y
 
 appE3 f x y z = AppE (AppE (AppE f x) y) z
 appE4 f x y z w = AppE (AppE (AppE (AppE f x) y) z) w
+
+
+-------------------------------------------------------------------------
+-- Lazy Parsing
+-------------------------------------------------------------------------
+
+
+genLazyParserDecls :: [PadsDecl] -> Q [Dec]
+genLazyParserDecls ds = do
+  mapM_ recTys ds
+  mapM_ calcSS ds
+  genSkinInstantiation [([s], (:[]) <$> t, p) | (PadsDeclSkin s t p) <- ds]
+    where recTys (PadsDeclType n _ _ ty) = pcgPutTy [n] ty
+          recTys _ = return ()
+
+          calcSS d@(PadsDeclType n _ _ _) =
+            ssPadsDecl d >>= \ss -> pcgPutSS [n] ss
+          calcSS d@(PadsDeclData n _ _ _ _) =
+            ssPadsDecl d >>= \ss -> pcgPutSS [n] ss
+          calcSS d@(PadsDeclNew n _ _ _ _) =
+            ssPadsDecl d >>= \ss -> pcgPutSS [n] ss
+          calcSS d@(PadsDeclObtain n _ _ _) =
+            ssPadsDecl d >>= \ss -> pcgPutSS [n] ss
+          calcSS (PadsDeclSkin _ _ _) = return ()
+
+-- | expects to be called for every pads block containing skins.
+--   For each skin, there are two cases to consider. In the first
+--   case a skin is simply defined, in which case we just stuff
+--   the skin into the appropriate code gen metadata
+--   value for later reference. In the second case we must instantiate
+--   the skin applied to a type. First there is a typechecking phase to
+--   ensure that the skin actually fits the provided type, then all the
+--   appropriate parsers are generated.
+genSkinInstantiation :: [(QString, Maybe QString, PadsSkinPat)]
+                     -> Q [Dec]
+genSkinInstantiation skinDecls = do
+  chk <- typeCheck [ (ty, pat) | (_, Just ty, pat) <- skinDecls ]
+  case chk of
+    (Left err) -> fail $ show err
+    (Right ()) -> do
+      mapM_ putSkins skinDecls
+      concat <$> mapM gen skinDecls
+  where putSkins (name, _, pat) = pcgPutSkin name pat >> return ()
+
+        singleName = concat . List.intersperse "_"
+
+        gen (_, Nothing, _) = return []
+        gen (name, Just tyName, pat) = do
+          parser <- genSkinParser tyName pat
+          stringParser <- genPadsParseS (singleName name)
+                            [] Nothing
+          return
+            ((ValD (VarP . mkTyParserName $ singleName name) (NormalB parser) [])
+                 : stringParser)
+
+-- | given a type and pattern which typecheck, generates
+--   the the required parsing function. Returns an expression
+--   of type `PadsParser (target type, metadata)`
+genSkinParser :: QString -- ^ the type name
+              -> PadsSkinPat -- ^ the pattern
+              -> Q Exp
+genSkinParser tyName fullPattern = do
+  fullType <- pcgGetTy tyName
+  gen fullType fullPattern
+  where
+    gen ty PSForce = genParseTy ty
+    gen ty PSDefer = do
+      annotatedTy <- pcgGetTySS tyName
+      let skippedDef =
+            [| (\(v, md) -> (v, md `modifyMdHeader`
+                                   (\h -> h {skipped = True}) ))
+                    $(defaultPair ty) |]
+      [| $(skipParser annotatedTy) >> return $skippedDef |]
+    gen (PTuple tys) (PSTupleP pats) = do
+      parsers <- mapM (\(t, p) -> gen t p) (zip tys pats)
+      resVars <- mapM (\_ -> newName "res") parsers
+      mdVars <- mapM (\_ -> newName "md") parsers
+      let tupPat res md = TupP [VarP res, VarP md]
+          parserStmts = map (\(r, m, p) -> BindS (tupPat r m) p)
+                            (zip3 resVars mdVars parsers)
+          resVal = TupE $ map VarE resVars -- actual result
+      resMd <- [| mergeBaseMDs
+                 $(return . ListE . map VarE $ mdVars) |]
+      let res = NoBindS $ (VarE 'return) `AppE` TupE [resVal, resMd]
+      return . DoE $ parserStmts ++ [res]
+
+
+    gen ty pat =
+      fail $ "=== PADS:CodeGen.hs:genSkinParser:gen:>:unimplimented ===\n"
+             ++ "ty=" ++ show ty ++ "\npat=" ++ show pat ++ "\n\n"
+
+--
+-- Lazy Accessor Code Gen Utilities
+--
+
+
+-- | returns an expression of type `PadsParser ()` which fast forwards
+--   over the underlying source using a skip function generated by
+--   `fuseSS`
+skipParser :: (PadsTy, SkipStrategy) -> Q Exp
+skipParser annTy = [| primPads (\s -> ((), $(fuseSS annTy)s)) |]
+
+-- | return an expression of type `Source -> Source`.
+--     The generated function is a skipper function which applies all
+--     the right skip strategies required to most efficently skip the
+--     given pads type.
+fuseSS :: (PadsTy, SkipStrategy) -> Q Exp
+fuseSS (ty, skipStrat) =
+  case skipStrat of
+    (SSFixed n) -> [| snd . S.takeBytes n |]
+    (SSSeq []) -> [| id |]
+    (SSSeq [s]) -> fuseSS s
+    (SSSeq (s:ss@((nextTy, _):_))) ->
+      [| $(fuseSS (nextTy, SSSeq ss)) . $(fuseSS s) |]
+    SSNone -> [| snd . $(genSkipFunTy ty) |]
+    ss@(SSFun _ _) -> fail $
+      "=== PADS:CodeGen.hs:LazyAccessors:fuseSS ===\n"
+       ++ "cannot instantiate SSFun skip strategy ss=(\n"
+       ++ show ss ++ ").\n\n"
+       ++ "This can only arise when there is an issue with the\n"
+       ++ "pads implementation. Please contact the PADS maintainers."
+
+compE :: Exp -> Exp -> Exp
+compE e1 e2 = UInfixE e1 (VarE (mkName ".")) e2
+
+-- | Generate an expression of type `Source -> Source` that uses the
+--   underlying parser
+genSkipFunTy :: PadsTy -> Q Exp
+genSkipFunTy ty = [| \source -> fst ( $(genParseTy ty) # source) |]
+
+-- TODO(ethan): see if genParseTy returns (VarE <whatever>_parseM)
+-- for already generated parsers, and fix it (using the new pads
+-- environment hacks)
+
+--
+-- Type Checking
+--
+
+data TypeError = PatternMatchTypeError PadsTy PadsSkinPat
+               | SkinNotFound QString
+               | TypeNotFound QString
+               | Unimplimented PadsTy PadsSkinPat
+  deriving(Eq, Show)
+
+
+-- returns an expression of type `Either TypeError ()`
+typeCheck :: [(QString, PadsSkinPat)] -> Q (Either TypeError ())
+typeCheck pairs = do
+  tyEnv <- pcgGetTyEnv
+  let lookupTy name p env = case
+        name `Map.lookup` env of
+          (Just ty) -> return (ty, p)
+          Nothing -> Left $ TypeNotFound name
+      couldBeTypes = mapM (\(t, p) -> lookupTy t p tyEnv) pairs
+  skinEnv <- pcgGetSkinEnv
+  return $ couldBeTypes >>= \tys ->
+    mapM_ (\(t, p) -> tyChk tyEnv skinEnv t p) tys
+
+--
+-- It would be real nice to be able to come up with some way to
+-- append to a global map of some sort instead of having to build
+-- the environment closure from scratch each time.
+--
+
+tyChk :: Env PadsTy -> Env PadsSkinPat
+      -> PadsTy
+      -> PadsSkinPat
+      -> Either TypeError ()
+tyChk types skins = chk
+  where
+    chk _ PSForce = Right () -- terminal
+    chk _ PSDefer = Right () -- terminal
+    chk (PTuple ts) (PSTupleP pats) =
+      mapM_ (\(ty, p) -> chk ty p) (zip ts pats)
+    chk (PApp (PTycon con:args) _) (PSConP conPat argsP)
+      | con == conPat =
+      mapM_ (\(ty, p) -> chk ty p) (zip args argsP)
+    -- TODO: records
+    chk ty pat@(PSRecP {}) = Left $ Unimplimented ty pat
+
+    chk ty (PSSkin skinName) =
+      case skinName `Map.lookup` skins of
+        (Just s) -> chk ty s
+        Nothing -> Left $ SkinNotFound skinName
+    chk tau@(PTycon tyName) pat =
+      case tyName `Map.lookup` types of
+        (Just t) -> chk t pat
+        _ -> Left $ TypeNotFound tyName
+    chk ty pat = Left $ PatternMatchTypeError ty pat
+
+
+defaultPair :: PadsTy -> Q Exp
+defaultPair ty = do
+  unit <- [| () |]
+  let hsTy = mkRepTy ty
+      rep = return $ SigE ((VarE 'def1) `AppE` unit) hsTy
+  [| let r = $rep in (r, defaultMd1 () r) |]
 
 

@@ -137,11 +137,11 @@ parseConstraint p pred = do
   (rep,md) <- p
   mdReturn (rep, replace_md_header md (constraintReport (pred rep md) md))
  
-constraintReport isGood md = Base_md {numErrors = totErrors, errInfo = errors}
+constraintReport isGood md = headMd { numErrors = totErrors, errInfo = errors }
   where
-    Base_md {numErrors, errInfo} = get_md_header md
+    headMd@(Base_md {numErrors, errInfo}) = get_md_header md
     totErrors = if isGood then numErrors else numErrors + 1
-    errors = if totErrors == 0 then Nothing else 
+    errors = if totErrors == 0 then Nothing else
        Just(ErrInfo {msg = if isGood then UnderlyingTypedefFail
                                      else PredicateFailure,
                      position = join $ fmap position errInfo})

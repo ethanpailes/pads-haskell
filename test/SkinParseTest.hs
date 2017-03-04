@@ -2,7 +2,6 @@
 module SkinParseTest where
 
 import Text.Parsec (ParseError)
-import Test.QuickCheck
 import TestUtils
 import Test.HUnit.Text
 import Test.HUnit.Base
@@ -11,7 +10,6 @@ import Language.Pads.Parser
 import Language.Pads.Pretty()
 import PropTesting()
 import qualified Text.Parsec.Prim as P
-import qualified Text.Parsec.Token as PT
 
 import qualified Text.PrettyPrint.Mainland as PP
 
@@ -40,18 +38,18 @@ test = do
     , labeledAssert "parse_con_1"
        (testParse "skin Foo = SomeConstructor (SomeOtherConstructor force defer)"
         ==Right [PadsDeclSkin "Foo" Nothing
-                (PSConP "SomeConstructor" [PSConP "SomeOtherConstructor"
+                (PSConP ["SomeConstructor"] [PSConP ["SomeOtherConstructor"]
                                           [PSForce, PSDefer]])])
 
     , labeledAssert "parse_rec_1"
         (rec_1 == Right [PadsDeclSkin "Foo" Nothing
-                (PSRecP "SomeRecCon" [
-                  ("aField", PSTupleP [PSForce, PSConP "SomeCon" [PSDefer]])
+                (PSRecP ["SomeRecCon"] [
+                  ("aField", PSTupleP [PSForce, PSConP ["SomeCon"] [PSDefer]])
                 , ("anotherField", PSDefer) ])])
 
     , labeledAssert "skin_1"
        (testParse "skin Foo = <SomeSkin>"
-        ==Right [PadsDeclSkin "Foo" Nothing (PSSkin "SomeSkin")])
+        ==Right [PadsDeclSkin "Foo" Nothing (PSSkin ["SomeSkin"])])
     ]
 
 propTests :: IO Bool
