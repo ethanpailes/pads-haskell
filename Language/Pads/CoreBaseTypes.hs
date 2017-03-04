@@ -63,10 +63,11 @@ char_def = 'X'
 
 type instance PadsArg Char = ()
 type instance Meta Char = Base_md
+instance PadsDefault () Char Base_md where
+  def1 () = char_def
 instance Pads1 () Char Base_md where
   parsePP1 () = char_parseM
   printFL1 () = char_printFL
-  def1 () = char_def
 
 char_printFL :: PadsPrinter (Char, md)
 char_printFL (c,bmd) = addString [c] 
@@ -94,10 +95,11 @@ int_def = 0
 
 type instance PadsArg Int = ()
 type instance Meta Int = Base_md
+instance PadsDefault () Int Base_md where
+  def1 () = int_def
 instance Pads1 () Int Base_md where
   parsePP1 () = int_parseM
   printFL1 () = int_printFL
-  def1 () = int_def
 
 int_printFL :: PadsPrinter (Int, Base_md)
 int_printFL (i, bmd) = fshow i
@@ -124,10 +126,11 @@ integer_def = 0
 
 type instance PadsArg Integer = ()
 type instance Meta Integer = Base_md
+instance PadsDefault () Integer Base_md where
+  def1 () = integer_def
 instance Pads1 () Integer Base_md where
   parsePP1 () = integer_parseM
   printFL1 () = integer_printFL
-  def1 () = integer_def
 
 integer_printFL :: PadsPrinter (Integer, Base_md)
 integer_printFL (i, bmd) = fshow i
@@ -177,10 +180,11 @@ float_def = 0
 
 type instance PadsArg Float = ()
 type instance Meta Float = Base_md
+instance PadsDefault () Float Base_md where
+  def1 () = float_def
 instance Pads1 () Float Base_md where
   parsePP1 () = float_parseM
   printFL1 () = float_printFL
-  def1 () = float_def
 
 float_printFL :: PadsPrinter (Float, Base_md)
 float_printFL (d, bmd) = fshow d
@@ -230,10 +234,11 @@ double_def = 0
 
 type instance PadsArg Double = ()
 type instance Meta Double = Base_md
+instance PadsDefault () Double Base_md where
+  def1 () = 0
 instance Pads1 () Double Base_md where
   parsePP1 () = double_parseM
   printFL1 () = double_printFL
-  def1 () = 0
 
 double_printFL :: PadsPrinter (Double, Base_md)
 double_printFL (d, bmd) = fshow d
@@ -289,10 +294,11 @@ string_def = ""
 
 type instance PadsArg String = ()
 type instance Meta String = Base_md
+instance PadsDefault () String Base_md where
+  def1 () = string_def
 instance Pads1 () String Base_md where
   parsePP1 () = string_parseM
   printFL1 () = string_printFL
-  def1 () = string_def
 
 string_printFL :: PadsPrinter (String, Base_md)
 string_printFL (str, bmd) = addString str
@@ -317,10 +323,11 @@ text_def = Text $ B.pack []
 
 type instance PadsArg Text = ()
 type instance Meta Text = Base_md
+instance PadsDefault () Text Base_md where
+  def1 () = text_def
 instance Pads1 () Text Base_md where
   parsePP1 () = text_parseM
   printFL1 () = text_printFL
-  def1 () = text_def
 
 text_printFL :: PadsPrinter (Text, Base_md)
 text_printFL (Text str, bmd) = addBString str
@@ -345,10 +352,11 @@ binary_def = Binary $ B.pack []
 
 type instance PadsArg Binary = ()
 type instance Meta Binary = Base_md
+instance PadsDefault () Binary Base_md where
+  def1 () = binary_def
 instance Pads1 () Binary Base_md where
   parsePP1 () = binary_parseM
   printFL1 () = binary_printFL
-  def1 () = binary_def
 
 binary_printFL :: PadsPrinter (Binary, Base_md)
 binary_printFL (Binary bstr, bmd) = addBString bstr
@@ -666,10 +674,11 @@ void_def :: Void
 void_def = Void ()
 
 type instance Meta Void = Base_md
+instance PadsDefault () Void Base_md where
+  def1 () = void_def
 instance Pads1 () Void Base_md where
   parsePP1 () = void_parseM
   printFL1 () = void_printFL
-  def1 () = void_def
 
 void_printFL :: PadsPrinter (Void,Base_md)
 void_printFL v = nil
@@ -689,9 +698,6 @@ list_printQ :: [(String,String,String)] -> FList
 list_printQ [] =  nil
 list_printQ (item:items) = rtuple_printQ item +++ list_printQ items
 
-            
-            
-            
 
 
 
@@ -748,10 +754,11 @@ bytes_def i = B.pack $ replicate i (0::Word8)
 
 type instance PadsArg Bytes = Int
 type instance Meta Bytes = Bytes_md
+instance PadsDefault Int Bytes Bytes_md where
+  def1 i = bytes_def i
 instance Pads1 Int Bytes Bytes_md where
   parsePP1 = bytes_parseM
   printFL1 = bytes_printFL
-  def1 i = bytes_def i
 
 ---- All the others can be derived from this: moved to BaseTypes.hs
 

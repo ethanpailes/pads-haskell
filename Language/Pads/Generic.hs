@@ -78,17 +78,21 @@ printFileRep filepath r = printFile filepath (r,defaultMd r)
 
 type family PadsArg rep :: *
 
-class (Data rep, PadsMD md, PadsMD (Meta rep)) => Pads1 arg rep md | rep -> md, rep -> arg where
+class (Data rep, PadsMD md, PadsMD (Meta rep)) =>
+      PadsDefault arg rep md | rep -> md, rep -> arg where
   def1 :: arg -> rep
-  def1 =  \_ -> gdef
+  def1 _ = gdef
   defaultMd1 :: arg -> rep -> md
   defaultMd1 _ _ = myempty
+  defaultRepMd1 :: arg -> (rep,md)
+  defaultRepMd1 arg = (rep,md)
+    where rep = def1 arg
+          md = defaultMd1 arg rep
+
+class (Data rep, PadsMD md, PadsMD (Meta rep), PadsDefault arg rep md) =>
+      Pads1 arg rep md | rep -> md, rep -> arg where
   parsePP1  :: arg -> PadsParser (rep,md)
   printFL1 :: arg -> PadsPrinter (rep,md)
-  defaultRepMd1 :: arg -> (rep,md)
-  defaultRepMd1 arg = (rep,md) where
-    rep = def1 arg
-    md = defaultMd1 arg rep
 
 parseRep1 :: Pads1 arg rep md => arg -> String -> rep
 parseRep1 arg cs = fst $ fst $ parseStringInput (parsePP1 arg) cs
@@ -198,3 +202,6 @@ instance BuildContainer1 [] key a  where
   buildContainer1 = id
   toList1         = id
 
+--
+-- Instances
+--

@@ -133,6 +133,8 @@ shouldBeThree = $(applySSFun
      skin ForceInt for IntAlias = force
      skin DeferInt for IntAlias = defer
 
-     type TupleFWPrefix = (StringFW 10, ' ', Int)
+     type TupleFWPrefix = (Digit, ' ', Int)
      -- skin DeferTupleFWPrefix for TupleFWPrefix = defer
 |]
+
+-- defThing = def1 () :: (Digit, Int)

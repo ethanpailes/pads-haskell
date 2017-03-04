@@ -263,11 +263,21 @@ mkMDTuple isMeta tys = case mds of
 
 mkPadsInstance :: UString -> [LString] -> Maybe Type -> [Dec]
 mkPadsInstance str args mb@(Nothing)
-  = buildInst mb str args (ConT ''Pads)
-mkPadsInstance str args mb@(Just ety) 
-  = buildInst mb str args (ConT ''Pads1 `AppT` ety)
+  = buildInst mb str args (\con -> ConT con `AppT` (ConT ''() ))
+mkPadsInstance str args mb@(Just ety)
+  = buildInst mb str args (\con -> ConT con `AppT` ety)
 
-buildInst mb str args pads = [InstanceD ctx inst [parsePP_method, printFL_method,def_method],TySynInstD ''Meta $ TySynEqn [ty_name] meta_ty,TySynInstD ''PadsArg $ TySynEqn [ty_name] arg_ty]
+buildInst :: Maybe Type
+          -> String -- ^ the name of the type we are building an instance for
+          -> [String] -- ^ the arguments to the type
+          -> (Name -> Type) -- ^ a function to create the base class type
+          -> [Dec] -- ^ the instance declarations
+buildInst mb str args mkClassType = [
+    InstanceD ctx pads1Inst [parsePP_method, printFL_method]
+  , InstanceD ctx padsDefaultInst [def_method]
+  , TySynInstD ''Meta $ TySynEqn [ty_name] meta_ty
+  , TySynInstD ''PadsArg $ TySynEqn [ty_name] arg_ty
+  ]
   where
   arg_ty = case mb of
     Nothing -> TupleT 0
@@ -275,7 +285,8 @@ buildInst mb str args pads = [InstanceD ctx inst [parsePP_method, printFL_method
   mbarg = case mb of
     Nothing -> [TupP []]
     Just _ -> []
-  inst    = applyT [pads, ty_name, md_ty]
+  pads1Inst        = applyT [mkClassType ''Pads1, ty_name, md_ty]
+  padsDefaultInst  = applyT [mkClassType ''PadsDefault, ty_name, md_ty]
   ty_name = applyT (ConT (mkName str) : map fst argpairs)
   md_ty   = applyT (ConT (mkMDName str) : map snd argpairs)
   meta_ty   = applyT (ConT (mkMDName str) : metas)
