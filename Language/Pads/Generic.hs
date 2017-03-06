@@ -1,4 +1,6 @@
-{-# LANGUAGE TypeFamilies, ConstraintKinds, MultiParamTypeClasses, FunctionalDependencies, ScopedTypeVariables, FlexibleContexts, Rank2Types, FlexibleInstances #-}
+{-# LANGUAGE TypeFamilies, ConstraintKinds, MultiParamTypeClasses,
+    FunctionalDependencies, ScopedTypeVariables, FlexibleContexts,
+    Rank2Types, FlexibleInstances #-}
 
 {-
 ** *********************************************************************
@@ -79,7 +81,7 @@ printFileRep filepath r = printFile filepath (r,defaultMd r)
 type family PadsArg rep :: *
 
 class (Data rep, PadsMD md, PadsMD (Meta rep)) =>
-      PadsDefault arg rep md | rep -> md, rep -> arg where
+      PadsDefault arg rep md | rep -> md where
   def1 :: arg -> rep
   def1 _ = gdef
   defaultMd1 :: arg -> rep -> md
@@ -205,3 +207,27 @@ instance BuildContainer1 [] key a  where
 --
 -- Instances
 --
+
+-- class (Data rep, PadsMD md, PadsMD (Meta rep)) =>
+--       PadsDefault arg rep md | rep -> md where
+--   def1 :: arg -> rep
+--   def1 _ = gdef
+--   defaultMd1 :: arg -> rep -> md
+--   defaultMd1 _ _ = myempty
+--   defaultRepMd1 :: arg -> (rep,md)
+--   defaultRepMd1 arg = (rep,md)
+--     where rep = def1 arg
+--           md = defaultMd1 arg rep
+
+-- instance PadsDefault () rep md => PadsDefault () [rep] [md] where
+--   def1 () = []
+--   defaultMd1 _ _ = []
+
+-- instance ( PadsDefault () rep1 md1
+--          , PadsDefault () rep2 md2
+--          , PadsMD md, PadsMD (Meta (rep1, rep2))
+--          )
+--            => PadsDefault () (rep1, rep2) md where
+--   def1 () = (def1 (), def1 ())
+
+

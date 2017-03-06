@@ -52,13 +52,13 @@ applySSFun _ _ =
 -- | returns an expression of type (PadsTy, SkipStrategy)
 ssPadsTy :: PadsTy -> Q (PadsTy, SkipStrategy)
 ssPadsTy ty@(PTycon [fixedPrim -> Just n]) = return (ty, (SSFixed n))
-ssPadsTy ty@(PTycon tc) = do
-  ssEnv <- pcgGetSSEnv
-  case tc `Map.lookup` ssEnv of
-    (Just (_, ss)) -> return (ty, ss)
-    Nothing -> do
-      ty' <- pcgGetTy tc
-      ssPadsTy ty'
+ssPadsTy ty@(PTycon tc) =
+  if tc `elem` coreBaseTypes
+    -- if it's not a `fixedPrim` then its not skippable
+    then return (ty, SSNone)
+  else do
+    ty' <- pcgGetTy tc
+    ssPadsTy ty'
 
 {- this needs to handle the expression arg
 ssPadsTy ty@(PApp (PTycon tc : args) _) = do
@@ -240,63 +240,27 @@ fixedLit _ = Nothing
 -- environment hack
 ----------------------------------------------------------------------
 
--- piggy-back the lookup environment on haskell's value environement
--- TODO: delete
-{-
-data PadsCodeGenMetadata = PadsCodeGenMetadata {
-        pcg_METADATA_skipStrategy :: (PadsDecl, SkipStrategy)
-    }
-    | PadsCodeGenSkinMetadata {
-        pcg_METADATA_skin :: PadsSkinPat
-    }
-  deriving(Eq, Show)
-
-padsCGMetadataPrefix :: String
-padsCGMetadataPrefix = "pads_CG_METADATA_"
--}
-
 type Env a = Map.Map QString a
 
 data PadsCGM = PadsCGM {
-      pcg_skipStrategyEnv :: Env (PadsDecl, SkipStrategy)
-    , pcg_typeEnv :: Env PadsTy
+      pcg_typeEnv :: Env PadsTy
     , pcg_skinEnv :: Env PadsSkinPat
     }
   deriving(Eq, Show)
 
+coreBaseTypes :: [QString]
+coreBaseTypes = map (\x -> [x])
+  ["Int", "Integer", "Float", "Char", "Double",
+   "Digit", "String"]
 
 {-# NOINLINE padsCodeGenEnv #-}
 padsCodeGenEnv :: IORef PadsCGM
 padsCodeGenEnv =
   unsafePerformIO $ newIORef PadsCGM {
-    pcg_skipStrategyEnv =
-       Map.fromList [
-        (["Int"], (PadsDeclType "Int" [] Nothing (PTycon ["Int"]), SSNone))
-       ]
-  , pcg_typeEnv =
-       Map.fromList [
-        (["Int"], PTycon ["Int"])
-      ]
+    pcg_typeEnv =
+       Map.fromList (map (\bt -> (bt, PTycon bt)) coreBaseTypes)
   , pcg_skinEnv = Map.empty
   }
-
--- | Add a skip strategy annotation to the pads codegen environment
-pcgPutSS :: QString -> (PadsDecl, SkipStrategy) -> Q ()
-pcgPutSS name ss =
-  qRunIO $ modifyIORef padsCodeGenEnv
-     (\pcgm -> pcgm {
-         pcg_skipStrategyEnv = Map.insert name ss (pcg_skipStrategyEnv pcgm)
-     })
-
--- | Looks up a given skip strategy in the pads codegen environment.
---     Makes use of the MonadFail instance if one is not defined.
-pcgGetSS :: QString -> Q (PadsDecl, SkipStrategy)
-pcgGetSS name = do
-  env <- qRunIO $ readIORef padsCodeGenEnv
-  case name `Map.lookup` (pcg_skipStrategyEnv env) of
-    (Just ss) -> return ss
-    Nothing -> fail $ "SkipStrategy for Type: "
-                           ++ qName name ++ " is not defined!"
 
 -- | Add a skip strategy annotation to the pads codegen environment
 pcgPutTy :: QString -> PadsTy -> Q ()
@@ -323,16 +287,6 @@ pcgPutSkin name ss =
          pcg_skinEnv = Map.insert name ss (pcg_skinEnv pcgm)
      })
 
-pcgGetTySS :: QString -> Q (PadsTy, SkipStrategy)
-pcgGetTySS name = do
-  env <- qRunIO $ readIORef padsCodeGenEnv
-  case name `Map.lookup` (pcg_skipStrategyEnv env) of
-    (Just (PadsDeclType _ _ _ ty, ss)) -> return (ty, ss)
-    _ ->
-      fail $ "Can't find skip strategy information for type:\n"
-             ++ show (qName name)
-             ++ "\nThis is likely a result of a bug in PADS."
-
 -- | Looks up a given skin in the pads codegen environment.
 --     Makes use of the MonadFail instance if one is not defined.
 pcgGetSkin :: QString -> Q PadsSkinPat
@@ -341,12 +295,6 @@ pcgGetSkin name = do
   case name `Map.lookup` (pcg_skinEnv env) of
     (Just s) -> return s
     Nothing -> fail $ "Skin: " ++ qName name ++ " is not defined!"
-
--- | get the skip strat env
-pcgGetSSEnv :: Q (Env (PadsDecl, SkipStrategy))
-pcgGetSSEnv = do
-  env <- qRunIO $ readIORef padsCodeGenEnv
-  return $ pcg_skipStrategyEnv env
 
 -- | get the skin env
 pcgGetSkinEnv :: Q (Env PadsSkinPat)

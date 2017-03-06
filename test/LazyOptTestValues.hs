@@ -36,7 +36,8 @@ fixedTestData l ty p = do
 
 chkP :: String -> (String -> (a,String)) -> (a -> Bool) -> String -> IO Test
 chkP label parser pred source =
-  return . TestLabel label . TestCase . assert . pred . fst . parser $ source
+  return . TestLabel label . TestCase . assert . pred
+  . fst . parser $ source
 
 eqSkipped :: (Eq a, PadsMD meta) => a -> (a, meta) -> Bool
 eqSkipped x (x1, meta) = x == x1 && (skipped . get_md_header) meta
@@ -133,8 +134,16 @@ shouldBeThree = $(applySSFun
      skin ForceInt for IntAlias = force
      skin DeferInt for IntAlias = defer
 
+     -- tuple test
      type TupleFWPrefix = (Digit, ' ', Int)
-     -- skin DeferTupleFWPrefix for TupleFWPrefix = defer
+     skin DeferTupleFWPrefix for TupleFWPrefix = defer
+     skin ForceTupleFWPrefix for TupleFWPrefix = force
+     skin DeferPrefixTupleFWPrefix for TupleFWPrefix =
+         (defer, defer, force)
 |]
-
--- defThing = def1 () :: (Digit, Int)
+intTyAssert = [intAlias_parseM, forceInt_parseM, deferInt_parseM]
+tupleFWPrefixTyAssert = [ tupleFWPrefix_parseM
+                        , deferTupleFWPrefix_parseM
+                        , forceTupleFWPrefix_parseM
+                        , deferPrefixTupleFWPrefix_parseM
+                        ]
