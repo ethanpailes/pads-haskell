@@ -1179,7 +1179,7 @@ defaultPair padsType = do
               map (\(r, m, d) -> ValD (tupPat r m) (NormalB d) [])
               (zip3 resVars mdVars (map snd defaults))
             resVal =
-              TupE . map VarE . map snd
+              TupE . map (VarE . snd)
               . filter fst . zip (map fst defaults) $ resVars -- actual result
             resMd = TupE [VarE 'cleanBasePD, TupE $ map VarE mdVars]
         return $ LetE defaultBindings (TupE [resVal, resMd])
@@ -1188,7 +1188,7 @@ defaultPair padsType = do
             rep = return $ SigE ((VarE 'def1) `AppE` unit) hsTy
         if hsTy == (ConT ''() )
           then [| ((), cleanBasePD) |]
-        else [| let r = $rep in (r, defaultMd1 () r) |]
+          else [| let r = $rep in (r, defaultMd1 () r) |]
   dp padsType
 
 
