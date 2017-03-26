@@ -12,6 +12,7 @@
 module Language.Pads.PadsPrinter where
 
 import qualified Data.ByteString as B
+import qualified Data.ByteString.Char8 as BC
 import qualified Language.Pads.Source as S
 import qualified Data.List as List
 import Language.Pads.Errors
@@ -47,7 +48,8 @@ addBString bs = \ws -> B.append bs  ws
 addString :: String -> FList 
 addString s = \ws -> B.append (S.strToByteString s)  ws
 
-fshow :: Show a => a -> FList 
+-- | show something as an flist
+fshow :: Show a => a -> FList
 fshow x = \ws -> B.append (S.strToByteString (show x)) ws
 
 
@@ -64,6 +66,9 @@ endRecord fst = fst +++ printEOR
 printF :: FList -> IO ()
 printF q = Prelude.print (B.unpack (q B.empty))
 
+-- | show the FList
+showFList :: FList -> String
+showFList q = BC.unpack (q B.empty)
 
 
 --------------------------------------------------

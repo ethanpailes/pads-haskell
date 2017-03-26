@@ -121,6 +121,7 @@ Test-Suite test-pads
     Examples.Binary,
     Examples.First,
     Examples.VCard,
+    Examples.LPExample,
     Language.Pads.BaseTypes,
     Language.Pads.CodeGen,
     Language.Pads.CoreBaseTypes,
