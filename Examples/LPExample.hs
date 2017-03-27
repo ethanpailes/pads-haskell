@@ -7,6 +7,9 @@ import Language.Pads.Generic
 
 import Test.QuickCheck.Arbitrary
 import Test.QuickCheck.Gen
+import Test.QuickCheck
+import Text.PrettyPrint.Mainland as PP
+import System.IO (withFile, IOMode(WriteMode), hPutStrLn)
 
 [pads|
 data LogEntry =
@@ -111,37 +114,21 @@ data RenderInfo =
 type NextDashEntry a = (" - ", a)
 |]
 
-unstructuredWarning =
-  logEntry_parseS "[ WARN ] - 234321423 - transport - :unstructured:4:xxxx"
-connectFailedWarning =
-  logEntry_parseS "[ WARN ] - 234321423 - transport - :connect-failed:14:example.com:80"
+genTestFile :: FilePath -> Int -> IO ()
+genTestFile file numLines = withFile file WriteMode mkFile
+    where mkFile handle =
+            let addNLines 0 = return ()
+                addNLines linesLeft = do
+                  logLine <- generate arbitrary :: IO LogEntry
+                  hPutStrLn handle ((pretty 200 . ppr) logLine)
+                  addNLines (linesLeft - 1)
+             in addNLines numLines
 
-boxCollideWarning =
-  logEntry_parseS $
-        "[ WARN ] - 234321423 - render - :box-conflict:"
-        ++ (show . length) payload ++ ":" ++ payload
-    where payload = (" box1=(1,2)-(3,4)-(5,6)-(7,8) conflicts with "
-                    ++ "box2=(9,10)-(11,12)-(13,14)-(15,16)")
-
-screenNotFoundError =
-  logEntry_parseS $
-        "[ ERROR ] - 234321423 - render - :screen-not-found:"
-        ++ (show . length) payload ++ ":" ++ payload
-    where payload = " errno=-17 message=the rest of the message"
-
-
-
-leDef :: LogEntry
-leDef = def1 ()
-
-leDefMd :: LogEntry_md
-leDefMd = defaultMd1 () leDef
-
-printLeDef :: LogEntry -> FList
-printLeDef le = logEntry_printFL (le, leDefMd)
-
-showLogEntry :: LogEntry -> String
-showLogEntry = showFList . printLeDef
+--
+-- These arbitrary instances are mostly to be able to auto-generate
+-- lots of test data, but they have the added benifit of making
+-- testing real easy.
+--
 
 instance Arbitrary LogEntry where
   arbitrary = oneof [
@@ -232,10 +219,108 @@ instance Arbitrary RenderWarning where
          }
     ]
 
-
 instance Arbitrary Box where
   arbitrary = Box <$> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary
 
 readableString :: Gen String
 readableString = listOf . elements $
-  "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 ~!@#$%^&*(){}[]|\\\":;<>,.?/`"
+  "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 ~!@#$%^&*(){}[]|\\\";<>,.?/`"
+
+
+--
+-- Pretty Printing
+--
+-- It seems like PADS should codegen this, but when I to use the
+-- *_printFL functions they did not work. This was easier.
+--
+
+instance Pretty LogEntry where
+  ppr (Info time ssi) = text "[ INFO ] - " <> ppr time <> ppr ssi
+  ppr (Warning time ssi) = text "[ WARN ] - " <> ppr time <> ppr ssi
+  ppr (Error time ssi) = text "[ ERROR ] - " <> ppr time <> ppr ssi
+
+-- subsystems
+instance Pretty SubsystemWarning where
+  ppr (SSWarnTransport x) = text " - transport - " <> ppr x
+  ppr (SSWarnRender x) = text " - render - " <> ppr x
+instance Pretty SubsystemError where
+  ppr (SSErrorTransport x) = text " - transport - " <> ppr x
+  ppr (SSErrorRender x) = text " - render - " <> ppr x
+instance Pretty SubsystemInfo where
+  ppr (SSInfoTransport x) = text " - transport - " <> ppr x
+  ppr (SSInfoRender x) = text " - render - " <> ppr x
+
+
+-- render messages
+instance Pretty RenderInfo where
+  ppr (RDInfoUnstructured len payload) =
+    text ":unstructured:" <> ppr len <> text (':' : payload)
+instance Pretty RenderError where
+  ppr (RDErrorUnstructured len payload) =
+    text ":unstructured:" <> ppr len <> text (':' : payload)
+  ppr (RDErrorScreenNotFound len errno message) =
+    text ":screen-not-found:" <> ppr len
+       <> text ": errno=" <> ppr errno
+       <> text " message=" <> ppr message
+instance Pretty RenderWarning where
+  ppr (RDWarnUnstructured len payload) =
+    text ":unstructured:" <> ppr len <> text (':' : payload)
+  ppr (RDWarnBoxConflict len box1 box2) =
+    text ":box-conflict:" <> ppr len
+       <> text ": box1=" <> ppr box1
+       <> text " conflicts with box2=" <> ppr box2
+instance Pretty Box where
+  ppr (Box ul ur lr ll) = ptPpr ul `dash` ptPpr ur `dash` ptPpr lr `dash` ptPpr ll
+    where ptPpr (x, y) = char '(' <> ppr x <> char ',' <> ppr y <> char ')'
+          dash f s = f <> char '-' <> s
+
+-- transport messages
+instance Pretty TransportWarning where
+  ppr (TSWarnUnstructured len payload) =
+    text ":unstructured:" <> ppr len <> text (':' : payload)
+  ppr (TSWarnConnectionFailed len host port) =
+    text ":connect-failed:" <> ppr len <> text (':' : host)
+       <> char ':' <> ppr port
+  ppr (TSWarnRealTimeTimeout len computeBlock reason) =
+    text ":realtime-timeout:" <> ppr len
+      <> text (':' : computeBlock) <> char ':'
+      <> maybe empty (text . (++":")) reason
+instance Pretty TransportError where
+  ppr (TSErrorUnstructured len payload) =
+    text ":unstructured:" <> ppr len <> text (':' : payload)
+instance Pretty TransportInfo where
+  ppr (TSInfoUnstructured len payload) =
+    text ":unstructured:" <> ppr len <> text (':' : payload)
+
+tests :: IO ()
+tests = do
+  putStrLn "RenderInfo"
+  quickCheck $ idempotant (fst . fst . renderInfo_parseS)
+  putStrLn "RenderError"
+  quickCheck $ idempotant (fst . fst . renderError_parseS)
+  putStrLn "Box"
+  quickCheck $ idempotant (fst . fst . box_parseS)
+  putStrLn "RenderWarning"
+  quickCheck $ idempotant (fst . fst . renderWarning_parseS)
+
+  putStrLn "TransportWarning"
+  quickCheck $ idempotant (fst . fst . transportWarning_parseS)
+  putStrLn "TransportError"
+  quickCheck $ idempotant (fst . fst . transportInfo_parseS)
+  putStrLn "TransportInfo"
+  quickCheck $ idempotant (fst . fst . transportInfo_parseS)
+
+  putStrLn "SubsystemWarning"
+  quickCheck $ idempotant (fst . fst . subsystemWarning_parseS)
+  putStrLn "SubsystemInfo"
+  quickCheck $ idempotant (fst . fst . subsystemInfo_parseS)
+  putStrLn "SubsystemError"
+  quickCheck $ idempotant (fst . fst . subsystemError_parseS)
+
+  putStrLn "LogEntry"
+  quickCheck $ idempotant (fst . fst . logEntry_parseS)
+
+-- | for createing idempotant property checks
+idempotant :: (Pretty a, Eq a) => (String -> a) -> a -> Bool
+idempotant parseFun x = x == ((parseFun . pretty 200 . ppr) x)
+
