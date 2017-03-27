@@ -10,6 +10,7 @@ import Test.QuickCheck.Gen
 import Test.QuickCheck
 import Text.PrettyPrint.Mainland as PP
 import System.IO (withFile, IOMode(WriteMode), hPutStrLn)
+import System.Random (newStdGen, randomR)
 
 [pads|
 data LogEntry =
@@ -116,13 +117,22 @@ type NextDashEntry a = (" - ", a)
 
 genTestFile :: FilePath -> Int -> IO ()
 genTestFile file numLines = withFile file WriteMode mkFile
-    where mkFile handle =
-            let addNLines 0 = return ()
-                addNLines linesLeft = do
+    where mkFile handle = do
+            let addNLines 0 _ _ = return ()
+                addNLines linesLeft gen time = do
                   logLine <- generate arbitrary :: IO LogEntry
-                  hPutStrLn handle ((pretty 200 . ppr) logLine)
-                  addNLines (linesLeft - 1)
-             in addNLines numLines
+                  let (tDelta, gen') = randomR (0, 10) gen
+                      time' = time + tDelta
+                      logLineStamped = liSetTime time' logLine
+                  hPutStrLn handle ((pretty 200 . ppr) logLineStamped)
+                  addNLines (linesLeft - 1) gen' time'
+            gen <- newStdGen
+            addNLines numLines gen 0
+
+liSetTime :: Int -> LogEntry -> LogEntry
+liSetTime t (Warning _ x) = Warning t x
+liSetTime t (Error _ x) = Error t x
+liSetTime t (Info _ x) = Info t x
 
 --
 -- These arbitrary instances are mostly to be able to auto-generate

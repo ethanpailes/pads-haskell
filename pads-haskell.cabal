@@ -170,5 +170,6 @@ Test-Suite test-pads
                     time >= 1.4.2,
                     th-lift >= 0.7,
                     th-orphans >= 0.13,
-                    QuickCheck >= 2.8.1
+                    QuickCheck >= 2.8.1,
+                    random >= 1.1
   
