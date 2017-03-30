@@ -13,6 +13,9 @@ import System.IO (withFile, IOMode(WriteMode), hPutStrLn)
 import System.Random (newStdGen, randomR)
 
 [pads|
+
+type Log = [LogEntry | EOR]
+
 data LogEntry =
   Info { "[ INFO ]"
   , time :: (NextDashEntry Int)
@@ -71,6 +74,12 @@ data TransportInfo =
   , tsUILen :: Len
   , tsUIMessage :: StringFW tsUILen
   }
+  | TSInfoPacketReceived { ":packet-received:"
+  , tsPRLen :: Len
+  , tsPRBytes :: (" got ", Int, " bytes")
+  , tsPRHost :: (" from host=", StringC ':', ":")
+  , tsPRPort :: Int
+  }
 
 --
 -- Log entries for the render subsystem
@@ -114,6 +123,113 @@ data RenderInfo =
 
 type NextDashEntry a = (" - ", a)
 |]
+
+
+{- UC1: Skin to get all the errors
+ -
+ - skin ForceError =
+ -   defer case
+ -     | Error force force
+ -
+ - skin MapErrors =
+ -   case (ForceError:Errors)
+ -      | []
+ - MapErrors @ Log -- apply Errors to Log
+ -
+ -}
+
+{- UC2: Skin to get all the errors between times N and M
+ -
+ - skin ForceDeltaError =
+ -   defer case
+ -     | Error <| \timestamp -> do
+ -                { put (timestamp >= N && timestamp <= M)
+ -                ; pure timestamp
+ -                }
+ -              |>
+ -             <| \sse -> do
+ -                { inRange <- get
+ -                ; pure (if inRange then Force sse else Defer)
+ -                }
+ -              |>
+ -
+ - skin MapErrors =
+ -   case (ForceDeltaError:Errors)
+ -      | []
+ - MapErrors @ Log -- apply Errors to Log
+ -
+ - Questions:
+ -   - How can we make sure that `sse` is never parsed when Defer is returned?
+ -
+ -
+ -}
+
+{- UC3: Skin to count all the errors
+ -
+ - skin CountIfError = <| \le -> do
+ -     let isError (Error _ _) = True
+ -         isError _ = False
+ -     when (isError le)
+ -         get >>= \count -> put (count + 1)
+ -     pure Defer
+ -   |>
+ -
+ - skin CountErrors =
+ -   case (CountIfError:Errors)
+ -      | []
+ - CountErrors @ Log -- apply Errors to Log
+ -
+ -
+ - Questions/Concerns:
+ -    - What problems arise from letting the user functions return Force
+ -      and Defer to indicate if members should be parsed? Would this
+ -      cause issues with lazyness? Would actual parsing only go far enough
+ -      to give us access to the bit we want, or do we need to make this
+ -      process a bit more explicit?
+ -
+ -}
+
+{- UC4: Sum the # of bytes from host=example.com
+ -
+ - skin SumBytes =
+ -   defer case
+ -     | Info defer
+              (defer case
+                 | TSInfoPacketReceived
+                      defer
+                      <| \bytes -> do { (currentCount, _) <- get
+                                      ; put (currentCount, bytes)
+                                      ; pure bytes
+                                      } |>
+                      <| \host -> do
+                            { (count, bytes) <- get
+                            ; when (host == "example.com") $ put (count, 0)
+                            ; pure host
+                            }
+                      defer)
+
+
+ -
+ - skin CountErrors =
+ -   case (CountIfError:Errors)
+ -      | []
+ - CountErrors @ Log -- apply Errors to Log
+ -
+ -
+ - Notes:
+ -   - This is awefully stateful. Is there some way to provide ways for
+ -     earlier steps to stuff values into variables? Perhaps any variable
+ -     could be the same as `force` and `_` could mean `defer`.
+ -
+ -}
+
+
+
+
+
+--
+--
+--
 
 genTestFile :: FilePath -> Int -> IO ()
 genTestFile file numLines = withFile file WriteMode mkFile
@@ -168,6 +284,14 @@ instance Arbitrary TransportInfo where
   arbitrary = oneof [
       do { msg <- readableString
          ; return $ TSInfoUnstructured (length msg) msg
+         }
+    , do { host <- readableString
+         ; port <- arbitrary `suchThat` (>0) :: Gen Int
+         ; bytes <- arbitrary `suchThat` (>0) :: Gen Int
+         ; return $ TSInfoPacketReceived
+                      (5 + (length . show) bytes +
+                       6 + 11 + length host + 1 + (length . show) port)
+                      bytes host port
          }
     ]
 instance Arbitrary TransportError where
@@ -301,6 +425,10 @@ instance Pretty TransportError where
 instance Pretty TransportInfo where
   ppr (TSInfoUnstructured len payload) =
     text ":unstructured:" <> ppr len <> text (':' : payload)
+  ppr (TSInfoPacketReceived len bytes host port) =
+    text ":packet-received:" <> ppr len <> text ": got "
+    <> ppr bytes <> text " bytes from host="
+    <> ppr host <> char ':' <> ppr port
 
 tests :: IO ()
 tests = do
