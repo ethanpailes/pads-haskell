@@ -15,6 +15,7 @@ import qualified Data.ByteString as B   -- abstraction for input data
 import qualified Text.Regex.Posix as TRP
 import Language.Pads.RegExp                        -- user-specified regular expressions
 import Text.PrettyPrint.Mainland as PP 
+import System.IO (Handle)
 
 import Data.Int
 import Data.Data
@@ -104,6 +105,11 @@ padsSourceFromFile file = do
   { bs <- B.readFile file
   ; return (padsSourceFromByteString bs)
   }
+
+hPadsSourceFromFile :: Handle -> IO Source
+hPadsSourceFromFile h = do
+  bs <- B.hGetContents h
+  return $ padsSourceFromByteString bs
 
 padsSourceFromFileWithDisc :: RecordDiscipline -> FilePath -> IO Source
 padsSourceFromFileWithDisc d file = do

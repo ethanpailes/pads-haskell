@@ -9,12 +9,14 @@ import Test.QuickCheck.Arbitrary
 import Test.QuickCheck.Gen
 import Test.QuickCheck
 import Text.PrettyPrint.Mainland as PP
-import System.IO (withFile, IOMode(WriteMode), hPutStrLn)
+import System.IO (withFile, IOMode(WriteMode, ReadMode), hPutStrLn)
 import System.Random (newStdGen, randomR)
+import Data.ByteString (hGetContents)
+import Control.Applicative (liftA2)
 
 [pads|
 
-type Log = [LogEntry | EOR]
+newtype Log = Log ([LogEntry | EOR] terminator EOF)
 
 data LogEntry =
   Info { "[ INFO ]"
@@ -112,7 +114,7 @@ data RenderError =
   | RDErrorScreenNotFound { ":screen-not-found:"
   , rdSNFLen :: Len
   , rdSNFErrNo :: (" errno=", Int)
-  , rdSNFMessage :: (" message=", [Char] terminator EOR)
+  , rdSNFMessage :: (" message=", StringC '\n')
   }
 
 data RenderInfo =
@@ -137,6 +139,14 @@ type NextDashEntry a = (" - ", a)
  - MapErrors @ Log -- apply Errors to Log
  -
  -}
+
+getErrorsDirect :: FilePath -> IO Log
+getErrorsDirect logFile = do
+  src <- padsSourceFromFile logFile
+  let Log logData = fst . fst . fst $ log_parseM # src
+      isError (Error _ _) = True
+      isError _ = False
+  return . Log $ (filter isError logData)
 
 {- UC2: Skin to get all the errors between times N and M
  -
@@ -164,6 +174,23 @@ type NextDashEntry a = (" - ", a)
  -
  -}
 
+getErrorsDelta :: FilePath -> Int -> Int -> IO Log
+getErrorsDelta logFile n m = do
+  src <- padsSourceFromFile logFile
+  let Log logData = fst . fst . fst $ log_parseM # src
+      isError (Error _ _) = True
+      isError _ = False
+      and = liftA2 (&&)
+  return . Log $ filter (((>=n) `and` (<=m)) . time) (filter isError logData)
+
+-- getErrorsDirect :: FilePath -> IO [LogEntry]
+-- getErrorsDirect logFile = do
+--   src <- padsSourceFromFile logFile
+--   let logData = fst . fst . fst $ log_parseM # src
+--       isError (Error _ _) = True
+--       isError _ = False
+--   return (filter isError logData)
+
 {- UC3: Skin to count all the errors
  -
  - skin CountIfError = <| \le -> do
@@ -188,6 +215,14 @@ type NextDashEntry a = (" - ", a)
  -      process a bit more explicit?
  -
  -}
+
+countErrors :: FilePath -> IO Int
+countErrors logFile = do
+  src <- padsSourceFromFile logFile
+  let Log logData = fst . fst . fst $ log_parseM # src
+      isError (Error _ _) = True
+      isError _ = False
+  return . length . filter isError $ logData
 
 {- UC4: Sum the # of bytes from host=example.com
  -
@@ -223,8 +258,14 @@ type NextDashEntry a = (" - ", a)
  -
  -}
 
-
-
+countBytesFromHost :: FilePath -> String -> IO Int
+countBytesFromHost logFile hostname = do
+  src <- padsSourceFromFile logFile
+  let Log logData = fst . fst . fst $ log_parseM # src
+      numBytes (Info _ (SSInfoTransport (TSInfoPacketReceived _ bytes host _)))
+         | host == hostname = bytes
+      numBytes _ = 0
+  return . sum . map numBytes $ logData
 
 
 --
@@ -256,6 +297,9 @@ liSetTime t (Info _ x) = Info t x
 -- testing real easy.
 --
 
+instance Arbitrary Log where
+  arbitrary = Log <$> listOf1 arbitrary
+
 instance Arbitrary LogEntry where
   arbitrary = oneof [
       Info <$> arbitrary <*> arbitrary
@@ -285,7 +329,7 @@ instance Arbitrary TransportInfo where
       do { msg <- readableString
          ; return $ TSInfoUnstructured (length msg) msg
          }
-    , do { host <- readableString
+    , do { host <- oneof [return "example.com", readableString]
          ; port <- arbitrary `suchThat` (>0) :: Gen Int
          ; bytes <- arbitrary `suchThat` (>0) :: Gen Int
          ; return $ TSInfoPacketReceived
@@ -367,6 +411,21 @@ readableString = listOf . elements $
 -- It seems like PADS should codegen this, but when I to use the
 -- *_printFL functions they did not work. This was easier.
 --
+
+bar = Log [Error {time = -3, subsystemError = SSErrorRender (RDErrorScreenNotFound {rdSNFLen = 21, rdSNFErrNo = 4, rdSNFMessage = "u9\\N"})},Warning {time = -1, subsystemWarning = SSWarnRender (RDWarnUnstructured {rdUWLen = 1, rdUWMessage = "b"})},Info {time =2, subsystemInfo = SSInfoRender (RDInfoUnstructured {rdUILen = 0, rdUIMessage = ""})}]
+
+barS = "[ ERROR ] - -3 - render - :screen-not-found:21: errno=4 message=u9\\N\n[ WARN ] - -1 - render - :unstructured:1:b\n[ INFO ] - 2 - render - :unstructured:0:"
+
+barS' = "[ ERROR ] - -3 - render - :screen-not-found:21: errno=4 message=u9\\N\n"
+
+foo = Log [Error {time = -1, subsystemError = SSErrorRender (RDErrorScreenNotFound {rdSNFLen = 18, rdSNFErrNo = -2, rdSNFMessage = ""})},Error {time = -2, subsystemError = SSErrorTransport (TSErrorUnstructured {tsUELen = 3, tsUEMessage = "PR!"})},Info {time = -3, subsystemInfo = SSInfoRender (RDInfoUnstructured {rdUILen = 0, rdUIMessage = ""})}]
+
+
+fooS = "[ ERROR ] - -1 - render - :screen-not-found:18: errno=-2 message=\n[ ERROR ] - -2 - transport - :unstructured:3:PR!\n[ INFO ] - -3 - render - :unstructured:0:"
+
+
+instance Pretty Log where
+  ppr (Log l) = foldr1 (<>) $ punctuate (char '\n') (map ppr l)
 
 instance Pretty LogEntry where
   ppr (Info time ssi) = text "[ INFO ] - " <> ppr time <> ppr ssi
@@ -457,6 +516,9 @@ tests = do
 
   putStrLn "LogEntry"
   quickCheck $ idempotant (fst . fst . logEntry_parseS)
+
+  putStrLn "Log"
+  quickCheck $ idempotant (fst . fst . log_parseS)
 
 -- | for createing idempotant property checks
 idempotant :: (Pretty a, Eq a) => (String -> a) -> a -> Bool
