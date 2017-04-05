@@ -224,26 +224,21 @@ countErrors logFile = do
  - skin SumBytes =
  -   defer case
  -     | Info defer
-              (defer case
-                 | TSInfoPacketReceived
-                      defer
-                      <| \bytes -> do { (currentCount, _) <- get
-                                      ; put (currentCount, bytes)
-                                      ; pure bytes
-                                      } |>
-                      <| \host -> do
-                            { (count, bytes) <- get
-                            ; when (host == "example.com") $ put (count, 0)
-                            ; pure host
-                            }
-                      defer) |>
-
-
+ -          (defer case
+ -             | TSInfoPacketReceived
+ -                  defer
+ -                  <| \bytes -> do { (currentCount, _) <- get
+ -                                  ; put (currentCount, bytes)
+ -                                  ; pure bytes
+ -                                  } |>
+ -                  <| \host -> do
+ -                        { (count, bytes) <- get
+ -                        ; when (host == "example.com") $ put (count, 0)
+ -                        ; pure host
+ -                        }
+ -                  defer) |>
  -
- - skin CountErrors =
- -   case (CountIfError:Errors)
- -      | []
- - CountErrors @ Log -- apply Errors to Log
+ - Map SumBytes @ Log -- apply Errors to Log
  -
  -
  - Notes:
