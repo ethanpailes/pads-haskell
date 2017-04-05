@@ -132,11 +132,11 @@ type NextDashEntry a = (" - ", a)
  - skin ForceError =
  -   defer case
  -     | Error force force
+ -  skin Map s =
+ -    case (s : Map s)
+ -      |  []
  -
- - skin MapErrors =
- -   case (ForceError:Errors)
- -      | []
- - MapErrors @ Log -- apply Errors to Log
+ - Map ForceError @ Log -- apply Errors to Log
  -
  -}
 
@@ -159,17 +159,17 @@ getErrorsDirect logFile = do
  -              |>
  -             <| \sse -> do
  -                { inRange <- get
- -                ; pure (if inRange then Force sse else Defer)
+ -                ; if inRange then Force sse else Defer
  -                }
  -              |>
  -
- - skin MapErrors =
- -   case (ForceDeltaError:Errors)
- -      | []
- - MapErrors @ Log -- apply Errors to Log
+ - Map MapErrors @ Log
  -
  - Questions:
  -   - How can we make sure that `sse` is never parsed when Defer is returned?
+ -   - NOTE: this code is uncomfortably stateful, which depends on a parsing order.
+ -           We might want to add `putLocal` and `getLocal` to the monad so that we can
+ -           prevent stateful footguns.
  -
  -
  -}
@@ -193,21 +193,16 @@ getErrorsDelta logFile n m = do
 
 {- UC3: Skin to count all the errors
  -
- - skin CountIfError = <| \le -> do
- -     let isError (Error _ _) = True
- -         isError _ = False
- -     when (isError le)
- -         get >>= \count -> put (count + 1)
- -     pure Defer
- -   |>
+ - skin CountIfError =
+ -  defer case
+ -    | Error <| get >>= \count -> put (count + 1) >> Defer |> defer
  -
- - skin CountErrors =
- -   case (CountIfError:Errors)
- -      | []
- - CountErrors @ Log -- apply Errors to Log
+ - Map CountIfError @ Log -- apply Errors to Log
  -
  -
  - Questions/Concerns:
+ -    - This feels like a hack. What if Error has no arguments?
+ -           | Error <| get >>= \c -> put (c + 1) |>
  -    - What problems arise from letting the user functions return Force
  -      and Defer to indicate if members should be parsed? Would this
  -      cause issues with lazyness? Would actual parsing only go far enough
@@ -241,7 +236,7 @@ countErrors logFile = do
                             ; when (host == "example.com") $ put (count, 0)
                             ; pure host
                             }
-                      defer)
+                      defer) |>
 
 
  -
