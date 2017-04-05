@@ -130,11 +130,17 @@ type NextDashEntry a = (" - ", a)
 {- UC1: Skin to get all the errors
  -
  - skin ForceError =
- -   defer case
- -     | Error force force
+ -   defer case Error force force
+ -
+ - -- or without the sugar
+ - skin ForceError' =
+ -   case Error force force
+ -      | Info defer defer
+ -      | Warning defer defer
+ -
  -  skin Map s =
  -    case (s : Map s)
- -      |  []
+ -       | []
  -
  - Map ForceError @ Log -- apply Errors to Log
  -
@@ -152,7 +158,7 @@ getErrorsDirect logFile = do
  -
  - skin ForceDeltaError =
  -   defer case
- -     | Error <| \timestamp -> do
+ -       Error <| \timestamp -> do
  -                { put (timestamp >= N && timestamp <= M)
  -                ; pure timestamp
  -                }
@@ -195,7 +201,7 @@ getErrorsDelta logFile n m = do
  -
  - skin CountIfError =
  -  defer case
- -    | Error <| get >>= \count -> put (count + 1) >> Defer |> defer
+ -      Error <| get >>= \count -> put (count + 1) >> Defer |> defer
  -
  - Map CountIfError @ Log -- apply Errors to Log
  -
@@ -223,7 +229,7 @@ countErrors logFile = do
  -
  - skin SumBytes =
  -   defer case
- -     | Info defer
+ -       Info defer
  -          (defer case
  -             | TSInfoPacketReceived
  -                  defer
