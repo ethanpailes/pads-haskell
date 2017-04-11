@@ -1083,7 +1083,7 @@ fuseSS (ty, skipStrat) =
     (SSSeq (s:ss@((nextTy, _):_))) ->
       [| $(fuseSS (nextTy, SSSeq ss)) . $(fuseSS s) |]
     SSNone -> [| snd . $(genSkipFunTy ty) |]
-    ss@(SSFun _ _) -> fail $
+    ss@(SSFun _) -> fail $
       "=== PADS:CodeGen.hs:LazyAccessors:fuseSS ===\n"
        ++ "cannot instantiate SSFun skip strategy ss=(\n"
        ++ show ss ++ ").\n\n"

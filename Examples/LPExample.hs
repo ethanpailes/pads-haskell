@@ -14,6 +14,9 @@ import System.Random (newStdGen, randomR)
 import Data.ByteString (hGetContents)
 import Control.Applicative (liftA2)
 
+import Language.Pads.PadsParser (PadsParser, takeHeadP, parseTry)
+import Language.Pads.MetaData (cleanBasePD)
+
 [pads|
 
 newtype Log = Log ([LogEntry | EOR] terminator EOF)
@@ -32,7 +35,7 @@ data LogEntry =
   , subsystemError :: SubsystemError
   }
 
--- | the payloads for each of the major log categories
+--Presentation For Nate | the payloads for each of the major log categories
 data SubsystemWarning =
     SSWarnTransport " - transport" (NextDashEntry TransportWarning)
   | SSWarnRender " - render" (NextDashEntry RenderWarning)
@@ -138,13 +141,46 @@ type NextDashEntry a = (" - ", a)
  -      | Info defer defer
  -      | Warning defer defer
  -
- -  skin Map s =
- -    case (s : Map s)
- -       | []
+ - skin Map s =
+ -    case Log (s : Map s)
+ -       | Log []
  -
  - Map ForceError @ Log -- apply Errors to Log
  -
  -}
+
+forceError_parseM :: PadsParser (LogEntry, (Base_md, LogEntry_imd))
+forceError_parseM = do
+  isError <- takeHeadStrP "[ ERROR ]"
+  if isError
+    then do
+      (time, time_md) <- nextDashEntry_parseM int_parseM
+      (sse, sse_md) <- subsystemError_parseM
+      return (Error time sse,
+              (cleanBasePD, Error_imd cleanBasePD time_md sse_md))
+  else let leDef = def1 () :: LogEntry
+           (mdHead, mdBody) = defaultMd1 () leDef
+        in return (leDef, (mdHead { skipped = True }, mdBody))
+
+map_parseM :: PadsParser (LogEntry, (Base_md, LogEntry_imd))
+           -> PadsParser (Log, (Base_md, Log_imd))
+map_parseM p = do
+  arrayIsDone <- isEOFP -- check if the array is over
+  if arrayIsDone
+    then let lDef = def1 () :: Log
+             lDef_md = defaultMd1 () lDef
+          in return (Log [], lDef_md)
+  else do
+    (le, le_md@(le_md_head, le_md_body)) <- p
+    takeHeadStrP "\n"
+    (Log rest, (rest_md_head, Log_imd (h, mdList))) <- map_parseM p
+    return (Log (le:rest),
+             (le_md_head <> rest_md_head, Log_imd (h, (le_md:mdList)) ))
+
+-- getErrorsDirectGen :: FilePath -> IO LogEntry
+getErrorsDirectGen logFile = do
+  src <- padsSourceFromFile logFile
+  return . fst . fst . fst $ forceError_parseM # src
 
 getErrorsDirect :: FilePath -> IO Log
 getErrorsDirect logFile = do

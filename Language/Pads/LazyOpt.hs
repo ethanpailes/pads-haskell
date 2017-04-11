@@ -16,6 +16,7 @@ import Language.Haskell.TH.Lift (deriveLift)
 import Data.Data
 import Data.IORef
 import System.IO.Unsafe
+import Data.Monoid ((<>))
 
 import qualified Data.Map.Strict as Map
 
@@ -29,21 +30,20 @@ import qualified Data.Map.Strict as Map
 data SkipStrategy =
     SSFixed Int
   | SSSeq [(PadsTy, SkipStrategy)]
-  -- SSFun's args are spiritually of type ([SkipStrategy] -> SkipStrategy)
-  -- the expression expects to be evaluated in a context where a value
-  -- of type SkipStrategy is bound to each of the Name's in the argument
-  -- list. This hackery is required because otherwise there is no way
-  -- to provide a Lift instance for SkipStrategy, which is required if
-  -- we want to stuff it in the generated PADS_CG_METADATA fields.
-  | SSFun [Name] Exp
+  | SSFun (SkipStrategy -> SkipStrategy)
   | SSNone
-    deriving(Eq, Show)
 
-applySSFun :: SkipStrategy -> Exp -> Q Exp
-applySSFun (SSFun ns body) (ListE es) =
-  return $ LetE [ValD (VarP n) (NormalB e) [] | (n, e) <- zip ns es] body
-applySSFun _ _ =
-  fail "applySSFun: called on non-SSFun arg, or with non-list expression"
+instance Eq SkipStrategy where
+  SSFixed n == SSFixed m = n == m
+  SSSeq s1 == SSSeq s2 = s1 == s2
+  SSNone == SSNone = True
+  _ == _ = False
+
+instance Show SkipStrategy where
+  show (SSFixed n) = "SSFixed " <> show n
+  show (SSSeq s) = "SSSeq " <> show s
+  show (SSFun _) = "SSFun <unprintable>"
+  show SSNone = "SSNone"
 
 
 -- Pads Types
@@ -77,17 +77,17 @@ ssPadsTy ty = return $ ssPadsTy' ty -- lets be typesafe when we can
 
 
 -- | returns a list of expressions of type SkipStrategy
-argSkipStrats :: [PadsTy] -> Q [Exp]
-argSkipStrats [] = return []
-argSkipStrats [ty] = do
-  exp <- ssPadsTy ty
-  ss <- [| let (_, ss') = exp in ss' |]
-  return [ss]
-argSkipStrats (ty:ts) = do
-  rest <- argSkipStrats ts
-  exp <- ssPadsTy ty
-  ss <- [| let (_, ss') = exp in ss' |]
-  return (ss:rest)
+-- argSkipStrats :: [PadsTy] -> Q [Exp]
+-- argSkipStrats [] = return []
+-- argSkipStrats [ty] = do
+--   exp <- ssPadsTy ty
+--   ss <- [| let (_, ss') = exp in ss' |]
+--   return [ss]
+-- argSkipStrats (ty:ts) = do
+--   rest <- argSkipStrats ts
+--   exp <- ssPadsTy ty
+--   ss <- [| let (_, ss') = exp in ss' |]
+--   return (ss:rest)
 
 ssPadsTy' :: PadsTy -> (PadsTy, SkipStrategy)
 
@@ -307,9 +307,3 @@ pcgGetTyEnv :: Q (Env PadsTy)
 pcgGetTyEnv = do
   env <- qRunIO $ readIORef padsCodeGenEnv
   return $ pcg_typeEnv env
-
-----------------------------------------------------------------------
--- TH goes at the end of the file to avoid breaking mutual recursion
-----------------------------------------------------------------------
-
-$(deriveLift ''SkipStrategy)

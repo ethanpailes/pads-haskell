@@ -65,6 +65,11 @@ instance Applicative PadsParser where
   pure  = return
   (<*>) = ap
 
+-- NOTE: the presense of badReturn means that PadsParser is not a monad.
+-- It causes PadsParser to fail the right identity law, namely
+--          m >>= return ≡ m
+-- because
+-- forall m . (m >>= badReturn) >>= return /= (m >> badReturn)
 badReturn  r = PadsParser $ \bs -> ((r,bs), False)
 mdReturn (rep,md) = PadsParser $ 
     \bs -> (((rep,md),bs), numErrors (get_md_header md) == 0)

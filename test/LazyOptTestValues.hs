@@ -108,26 +108,6 @@ twoBranchDifferentWidth = r
                       "data D = D { foo :: StringFW 90, ' ', baz :: StringFW 13 }\
                       \       | B { 'xyz', bar :: StringFW 15 }"
 
-
-ssFunAdd :: SkipStrategy
-ssFunAdd = let x = mkName "x"
-               y = mkName "y"
-            in (SSFun [x,y] (UInfixE (VarE x) (VarE (mkName "+")) (VarE y)))
-
--- A smoke test for the SSFun hack
-shouldBeThree :: Int
-shouldBeThree = $(applySSFun
-
-                   -- the function to apply
-                 (let x = mkName "x"
-                      y = mkName "y"
-                   in (SSFun [x,y] (UInfixE (VarE x)
-                                    (VarE (mkName "+")) (VarE y))))
-
-                 -- the arguments to the function
-                 (ListE [LitE (IntegerL 1),LitE (IntegerL 2)]))
-
-
 [pads|
      -- Basic `force` and `defer` test
      type IntAlias = Int

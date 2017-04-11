@@ -139,7 +139,8 @@ parseSkinPat = do
     _ -> return pat
 
 parseSkinPat' :: Parser PadsSkinPat
-parseSkinPat' =  ((reserved "force" >> return PSForce)
+parseSkinPat' = (haskellExp >>= return . PSBind)
+            <|> ((reserved "force" >> return PSForce)
             <|> (reserved "defer" >> return PSDefer)
             -- the constructor is factored out to avoid backtracking
             <|> PSTupleP <$> parens (parseSkinPat `sepBy` reservedOp ",")
@@ -391,7 +392,7 @@ expression :: Parser Exp
 expression =  haskellExp
           <|> literal
 
-haskellExp :: Parser (Exp)
+haskellExp :: Parser Exp
 haskellExp = do { reservedOp "<|"
                 ; haskellParseExpTill "|>"
                 }

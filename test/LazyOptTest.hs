@@ -53,8 +53,6 @@ test =
                             (PTyvar "BOGUS", SSFixed 4)],
                       SSNone, SSSeq [(PTyvar "BOGUS", SSFixed 5)]]))
 
-    , TestLabel "shouldBeThree" . TestCase . assert . (==3)
-        <$> return shouldBeThree
     , chkP "forceInt" forceInt_parseS (eqForced 19) "19"
     , chkP "deferInt" deferInt_parseS (eqSkipped 0) "19"
     , chkP "forceTupFWPrefix"

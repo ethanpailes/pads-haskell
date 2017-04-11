@@ -57,17 +57,20 @@ errorBasePD path = Base_md {
   , skipped = False
   }
 
-
-mergeBaseMDs :: [Base_md] -> Base_md
-mergeBaseMDs mds = foldl addInfo cleanBasePD mds
-  where
-    addInfo Base_md{numErrors=num1,errInfo=i1,skipped=s1}
-            Base_md{numErrors=num2,errInfo=i2,skipped=s2}
+instance Monoid Base_md where
+  mempty = cleanBasePD
+  mappend Base_md { numErrors=num1, errInfo=i1, skipped=s1 }
+          Base_md { numErrors=num2, errInfo=i2, skipped=s2 }
       = Base_md {
         numErrors = num1 + num2
       , errInfo = E.maybeMergeErrInfo i1 i2
       , skipped = s1 || s2
       }
+
+
+mergeBaseMDs :: [Base_md] -> Base_md
+mergeBaseMDs mds = foldl mappend cleanBasePD mds
+
 
 
 mkErrBasePDfromLoc msg loc 

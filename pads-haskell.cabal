@@ -98,7 +98,8 @@ Library
                     time >= 1.4.2,
                     th-lift >= 0.7,
                     th-orphans >= 0.13,
-                    QuickCheck >= 2.8.1
+                    QuickCheck >= 2.8.1,
+                    mtl >= 2.2
 
   -- Modules not exported by this package.
   Other-modules:       Language.Pads.CodeGen,
@@ -171,5 +172,6 @@ Test-Suite test-pads
                     th-lift >= 0.7,
                     th-orphans >= 0.13,
                     QuickCheck >= 2.8.1,
-                    random >= 1.1
+                    random >= 1.1,
+                    mtl >= 2.2
   
