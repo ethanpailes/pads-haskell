@@ -19,6 +19,9 @@ import Language.Haskell.TH
 import Language.Haskell.TH.Syntax as THS
 import Language.Haskell.TH.Lift (deriveLiftMany)
 import Language.Haskell.TH.Instances
+import Control.Monad (liftM, ap)
+import qualified Control.Monad.Trans as CMT
+import Control.Monad.State.Lazy (MonadState(..), StateT)
 
 --
 -- A possible way to make this a little less verbose would be the Uniplate
@@ -39,13 +42,69 @@ data PadsDecl = PadsDeclType   String [String] (Maybe Pat) PadsTy
    deriving (Eq, Data, Typeable, Show)
 
 
+newtype PadsParseState s a = PadsParseState {
+      runPadsState :: (s -> (Maybe a, s))
+    }
+
+instance Functor (PadsParseState s) where
+    fmap = liftM
+
+instance Applicative (PadsParseState s) where
+    pure x = PadsParseState $ \s -> (Just x, s)
+    (<*>) = ap
+
+instance Monad (PadsParseState s) where
+  PadsParseState runSt1 >>= f =
+    PadsParseState $ \s1 ->
+      let (x1, s2) = runSt1 s1
+      in case x1 of
+           (Just v) -> runPadsState (f v) s2
+           -- note that no state actions are run once we start defering
+           Nothing -> (Nothing, s2)
+
+-- | thread state through, even if we have been asked to defer
+threadState :: PadsParseState s a -> PadsParseState s b -> PadsParseState s b
+threadState (PadsParseState runSt1) (PadsParseState runSt2) =
+  PadsParseState $ \s1 ->
+   let (_, s2) = runSt1 s1
+       (x, s3) = runSt2 s2
+    in (x, s3)
+
+defer :: PadsParseState s a
+defer = PadsParseState $ \s -> (Nothing, s)
+
+force :: a -> PadsParseState s a
+force = return
+
+-- instance MonadState PadsParseState s where
+state f = PadsParseState $ \s -> let (x, s') = f s in (Just x, s')
+get = PadsParseState $ \s -> (Just s, s)
+put newSt = PadsParseState $ \_ -> (Just (), newSt)
+
+-- do { res <- parseRes
+--    ; let ps = forceFun res
+--    }
+--
+
+-- the parse functions can be of type
+-- st -> PadsParser (a, a_md, st)
+-- where a is the type to be parsed, st is the parse state type
+-- and a_md is the metadata type for the parse.
+-- then I need to add some state into the PadsParser monad itself.
+
+
 -- | A pads skin tells PADS which values to force during
 --   parsing. One can be declared like
 --   `skin SkinName for SomePadsType = <pattern>`
 --   or just with
 --   `skin SkinName = <pattern>`
 --   if you don't want to apply the skin to a type just yet
-data PadsSkinPat = PSForce -- ^ Force the type. Terminal.
+data PadsSkinPat = PSBind Exp -- ^ bind a function of type `a -> m a` to
+                              --   the match cite, where a is the type that gets
+                              --   parsed and m is the monad.
+
+                 -- TODO: delete
+                 | PSForce -- ^ Force the type. Terminal.
                  | PSDefer -- ^ Defer the type for later parsing. Terminal.
 
                  -- pattern stuff
