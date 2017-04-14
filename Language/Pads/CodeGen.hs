@@ -931,6 +931,8 @@ mkfnMDName str      = mkName (strToLower str ++ "_md")
 
 -- Naming Parsers
 
+mkStringSkinParserName  str = mkName (strToLower str ++ "_parseFoldS")
+mkSkinParserName  str = mkName (strToLower str ++ "_parseFoldM")
 mkTyParserName  str = mkName (strToLower str ++ "_parseM")
 mkTyParserSName str = mkName (strToLower str ++ "_parseS")
 
@@ -984,7 +986,7 @@ appE4 f x y z w = AppE (AppE (AppE (AppE f x) y) z) w
 
 
 genLazyParserDecls :: [PadsDecl] -> Q [Dec]
-genLazyParserDecls ds = do
+genLazyParserDecls ds = trace "genLazyParserDecs" $ do
   mapM_ recTys ds
   genSkinInstantiation [([s], (:[]) <$> t, p) | (PadsDeclSkin s t p) <- ds]
     where recTys (PadsDeclType n _ _ ty) = pcgPutTy [n] ty
@@ -997,14 +999,16 @@ genLazyParserDecls ds = do
 --   value for later reference. In the second case we must instantiate
 --   the skin applied to a type. First there is a typechecking phase to
 --   ensure that the skin actually fits the provided type, then all the
---   appropriate parsers are generated.
+--   appropriate parsers are generated. In particular, we generate a
+--   parser of type `st -> PadsParser (tgt, tgt_metadata, st)`
 genSkinInstantiation :: [(QString, Maybe QString, PadsSkinPat)]
                      -> Q [Dec]
-genSkinInstantiation skinDecls = do
+genSkinInstantiation skinDecls =
+  trace ("genSkinInstantiation skinDecls=" ++ show skinDecls) $ do
   chk <- typeCheck [ (ty, pat) | (_, Just ty, pat) <- skinDecls ]
   case chk of
-    (Left err) -> fail $ show err
-    (Right ()) -> do
+    Left err -> fail $ show err
+    Right () -> do
       mapM_ putSkins skinDecls
       concat <$> mapM gen skinDecls
   where putSkins (name, _, pat) = pcgPutSkin name pat >> return ()
@@ -1014,15 +1018,25 @@ genSkinInstantiation skinDecls = do
         gen (_, Nothing, _) = return []
         gen (name, Just tyName, pat) = do
           parser <- genSkinParser tyName pat
-          stringParser <- genPadsParseS (singleName name)
-                            [] Nothing
+          stringParser <- genPadsParseFoldSkinS (singleName name)
           return
-            ((ValD (VarP . mkTyParserName $ singleName name) (NormalB parser) [])
-                 : stringParser)
+            [ValD (VarP . mkSkinParserName $ singleName name)
+              (NormalB parser) [], stringParser]
+
+genPadsParseFoldSkinS :: String -> Q Dec
+genPadsParseFoldSkinS parseFoldMBase = do
+  let parseFoldM = mkSkinParserName parseFoldMBase
+  body <- [| \input st ->
+              let ((res, src'), _) =
+                    $(return . VarE $ parseFoldM) st
+                            # S.padsSourceFromString input
+               in (res, S.padsSourceToString src') |]
+  return $ ValD (VarP . mkStringSkinParserName $ parseFoldMBase)
+                (NormalB body) []
 
 -- | given a type and pattern which typecheck, generates
 --   the the required parsing function. Returns an expression
---   of type `PadsParser (target type, metadata)`
+--   of type `st -> PadsParser (target type, metadata, st)`
 genSkinParser :: QString -- ^ the type name
               -> PadsSkinPat -- ^ the pattern
               -> Q Exp
@@ -1030,29 +1044,38 @@ genSkinParser tyName fullPattern = do
   fullType <- pcgGetTy tyName
   gen fullType fullPattern
   where
-    gen ty PSForce = genParseTy ty
-    gen ty PSDefer = do
-      annotatedTy <- ssPadsTy ty
-      let skippedDef =
-            [| (\(v, md) -> (v, md `modifyMdHeader`
-                                   (\h -> h {skipped = True}) ))
-                    $(defaultPair ty) |]
-      [| $(skipParser annotatedTy) >> return $skippedDef |]
-    gen (PTuple tys) (PSTupleP pats) = do
-      parsers <- mapM (\(t, p) -> gen t p) (zip tys pats)
-      resVars <- mapM (\_ -> newName "res") parsers
-      mdVars <- mapM (\_ -> newName "md") parsers
-      let tupPat res md = TupP [VarP res, VarP md]
-          parserStmts = map (\(r, m, p) -> BindS (tupPat r m) p)
-                            (zip3 resVars mdVars parsers)
-          resVal = TupE . map VarE . map snd
-            . filter (\(ty,_) -> mkRepTy ty /= ConT ''() )
-            $ (zip tys resVars) -- actual result
-      resMd <- [| (mergeBaseMDs $(return . ListE . map VarE $ mdVars),
-                   $(return . TupE . map VarE $ mdVars)
-                   )|]
-      let res = NoBindS $ (VarE 'return) `AppE` TupE [resVal, resMd]
-      return . DoE $ parserStmts ++ [res]
+    gen ty (PSBind userFoldFunction) = [| \st -> do
+          (x, x_md) <- $(genParseTy ty)
+          case ( $(return userFoldFunction) ) x st of
+            (Force val, st') -> return (val, x_md, st')
+            (Defer, st') ->
+              return (def, def_md `modifyMdHeader` (\h -> h {skipped = True}), st')
+                                where (def, def_md) = $(defaultPair ty)
+      |]
+
+    -- gen ty PSDefer = do
+    --   annotatedTy <- ssPadsTy ty
+    --   let skippedDef =
+    --         [| (\(v, md) -> (v, md `modifyMdHeader`
+    --                                (\h -> h {skipped = True}) ))
+    --                 $(defaultPair ty) |]
+    --   [| $(skipParser annotatedTy) >> return $skippedDef |]
+
+    -- gen (PTuple tys) (PSTupleP pats) = do
+    --   parsers <- mapM (\(t, p) -> gen t p) (zip tys pats)
+    --   resVars <- mapM (\_ -> newName "res") parsers
+    --   mdVars <- mapM (\_ -> newName "md") parsers
+    --   let tupPat res md = TupP [VarP res, VarP md]
+    --       parserStmts = map (\(r, m, p) -> BindS (tupPat r m) p)
+    --                         (zip3 resVars mdVars parsers)
+    --       resVal = TupE . map VarE . map snd
+    --         . filter (\(ty,_) -> mkRepTy ty /= ConT ''() )
+    --         $ (zip tys resVars) -- actual result
+    --   resMd <- [| (mergeBaseMDs $(return . ListE . map VarE $ mdVars),
+    --                $(return . TupE . map VarE $ mdVars)
+    --                )|]
+    --   let res = NoBindS $ (VarE 'return) `AppE` TupE [resVal, resMd]
+    --   return . DoE $ parserStmts ++ [res]
 
 
     gen ty pat =
@@ -1113,12 +1136,11 @@ data TypeError = PatternMatchTypeError PadsTy PadsSkinPat
   deriving(Eq, Show)
 
 
--- returns an expression of type `Either TypeError ()`
 typeCheck :: [(QString, PadsSkinPat)] -> Q (Either TypeError ())
 typeCheck pairs = do
   tyEnv <- pcgGetTyEnv
-  let lookupTy name p env = case
-        name `Map.lookup` env of
+  let lookupTy name p env =
+        case name `Map.lookup` env of
           (Just ty) -> return (ty, p)
           Nothing -> Left $ TypeNotFound name
       couldBeTypes = mapM (\(t, p) -> lookupTy t p tyEnv) pairs
@@ -1138,8 +1160,10 @@ tyChk :: Env PadsTy -> Env PadsSkinPat
       -> Either TypeError ()
 tyChk types skins = chk
   where
-    chk _ PSForce = Right () -- terminal
-    chk _ PSDefer = Right () -- terminal
+    -- terminal, we let haskell check the generated code for us
+    chk _ (PSBind _) = Right ()
+    chk _ PSForce = Right () -- terminal TODO: delete
+    chk _ PSDefer = Right () -- terminal TODO: delete
     chk (PTuple ts) (PSTupleP pats) =
       mapM_ (\(ty, p) -> chk ty p) (zip ts pats)
     chk (PApp (PTycon con:args) _) (PSConP conPat argsP)

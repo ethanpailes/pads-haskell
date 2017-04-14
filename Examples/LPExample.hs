@@ -13,13 +13,18 @@ import System.IO (withFile, IOMode(WriteMode, ReadMode), hPutStrLn)
 import System.Random (newStdGen, randomR)
 import Data.ByteString (hGetContents)
 import Control.Applicative (liftA2)
+import qualified Language.Pads.Source as S
 
 import Language.Pads.PadsParser (PadsParser, takeHeadP, parseTry)
 import Language.Pads.MetaData (cleanBasePD)
+import Language.Pads.Syntax
 
 [pads|
 
 newtype Log = Log ([LogEntry | EOR] terminator EOF)
+
+newtype SimpleLog = SimpleLog ([SimpleLogEntry | EOR] terminator EOF)
+type SimpleLogEntry = (StringFW 20, Int)
 
 data LogEntry =
   Info { "[ INFO ]"
@@ -207,6 +212,9 @@ getErrorsDirect logFile = do
  -
  - Map MapErrors @ Log
  -
+ - skin SkipServer = (defer, ForceDeltaError)
+ - SkipServer @ ServerPrefixedLogEntry
+ -
  - Questions:
  -   - How can we make sure that `sse` is never parsed when Defer is returned?
  -   - NOTE: this code is uncomfortably stateful, which depends on a parsing order.
@@ -215,6 +223,67 @@ getErrorsDirect logFile = do
  -
  -
  -}
+
+-- Generated code for: [pads|
+--   newtype SimpleLog = SimpleLog ([SimpleLogEntry | EOR] terminator EOF)
+--   type SimpleLogEntry = (StringFW 20, Int)
+--   skin CountInts =
+--       (defer, <| \i -> get >>= \count -> put (i + count) >> force i |>)
+--   skin CountInts' =
+--       (defer, <| \(i, s) -> (Force i, s + i) |>)
+--   Map CountInts @ SimpleLog
+-- |]
+
+-- the generated code for the raw function case. Not using the monadic interface.
+countInts_parseFoldM' ::
+  Int -> PadsParser ((StringFW, Int), (Base_md, (Base_md, Base_md)), Int)
+countInts_parseFoldM' st0 = do
+  -- skip the string prefix
+  primPads $ \s -> ((), (snd . S.takeBytes 10) s)
+  let (stringfw, stringfw_md) = ("", mempty)
+
+  -- parse the int and pass it in to the user-provided function
+  (int_parse, int_parse_md) <- int_parseM
+  let (int, int_md, st2) =
+        case (\(i,s) -> (Force i, s + i)) (int_parse, st0) of
+          (Force parseResult, st') -> (parseResult, int_parse_md, st')
+          (Defer, st') -> (0, mempty, st')
+
+  return ((stringfw, int), (mempty, (stringfw_md, int_md)), st2)
+
+-- the generated code for use in the monadic interface.
+countInts_parseFoldM ::
+  Int -> PadsParser ((StringFW, Int), (Base_md, (Base_md, Base_md)), Int)
+countInts_parseFoldM st0 = do
+  -- skip the string prefix
+  primPads $ \s -> ((), (snd . S.takeBytes 10) s)
+  let (stringfw, stringfw_md) = ("", mempty)
+
+  -- parse the int and pass it in to the user-provided function
+  (int_parse, int_parse_md) <- int_parseM
+  let userBlob :: Int -> PadsParseState Int Int
+      userBlob = \i -> get >>= \count -> put (i + count) >> force' i
+      (int, int_md, st2) =
+        case runPadsState (userBlob int_parse) st0 of
+          (ForceM parseResult, st') -> (parseResult, int_parse_md, st')
+          (DeferM _, st') -> (0, mempty, st')
+
+  return ((stringfw, int), (mempty, (stringfw_md, int_md)), st2)
+
+
+
+map_CountInts_parseM ::
+  PadsParser (SimpleLog, (Base_md, SimpleLog_imd))
+map_CountInts_parseM = undefined
+-- skipServer_ServerPrefixedLogEntry_parseM
+--   :: PadsParser ((StringFW, LogEntry), (Base_md, (Base_md, (Base_md, LogEntry_imd))))
+-- skipServer_ServerPrefixedLogEntry_parseM = do
+--   -- skip the prefix
+--   primPads $ \s -> ((), (snd . S.takeBytes 10) s)
+--   undefined
+
+
+
 
 getErrorsDelta :: FilePath -> Int -> Int -> IO Log
 getErrorsDelta logFile n m = do

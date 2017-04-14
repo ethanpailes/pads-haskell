@@ -1,5 +1,6 @@
 {-# LANGUAGE DeriveDataTypeable, MultiParamTypeClasses,
-    TypeSynonymInstances, FlexibleInstances, TemplateHaskell #-}
+    TypeSynonymInstances, FlexibleInstances, TemplateHaskell,
+    FlexibleContexts #-}
 
 {-
 ** *********************************************************************
@@ -22,6 +23,8 @@ import Language.Haskell.TH.Instances
 import Control.Monad (liftM, ap)
 import qualified Control.Monad.Trans as CMT
 import Control.Monad.State.Lazy (MonadState(..), StateT)
+import Language.Pads.Generic
+
 
 --
 -- A possible way to make this a little less verbose would be the Uniplate
@@ -42,15 +45,18 @@ data PadsDecl = PadsDeclType   String [String] (Maybe Pat) PadsTy
    deriving (Eq, Data, Typeable, Show)
 
 
+data ForceM a = ForceM a
+              | DeferM a -- ^ this is just so that monadic bind behaves the way we want
+
 newtype PadsParseState s a = PadsParseState {
-      runPadsState :: (s -> (Maybe a, s))
+      runPadsState :: (s -> (ForceM a, s))
     }
 
 instance Functor (PadsParseState s) where
     fmap = liftM
 
 instance Applicative (PadsParseState s) where
-    pure x = PadsParseState $ \s -> (Just x, s)
+    pure x = PadsParseState $ \s -> (ForceM x, s)
     (<*>) = ap
 
 instance Monad (PadsParseState s) where
@@ -58,9 +64,10 @@ instance Monad (PadsParseState s) where
     PadsParseState $ \s1 ->
       let (x1, s2) = runSt1 s1
       in case x1 of
-           (Just v) -> runPadsState (f v) s2
-           -- note that no state actions are run once we start defering
-           Nothing -> (Nothing, s2)
+           (ForceM v) -> runPadsState (f v) s2
+           -- we still invoke the function so that the state actions
+           -- get run. the funciton might force the thunk, which would be sad.
+           (DeferM x) -> runPadsState (f x) s2
 
 -- | thread state through, even if we have been asked to defer
 threadState :: PadsParseState s a -> PadsParseState s b -> PadsParseState s b
@@ -70,16 +77,16 @@ threadState (PadsParseState runSt1) (PadsParseState runSt2) =
        (x, s3) = runSt2 s2
     in (x, s3)
 
-defer :: PadsParseState s a
-defer = PadsParseState $ \s -> (Nothing, s)
+defer' :: PadsDefault () a md => PadsParseState s a
+defer' = PadsParseState $ \s -> (DeferM (def1 ()), s)
 
-force :: a -> PadsParseState s a
-force = return
+force' :: a -> PadsParseState s a
+force' = return
 
 -- instance MonadState PadsParseState s where
-state f = PadsParseState $ \s -> let (x, s') = f s in (Just x, s')
-get = PadsParseState $ \s -> (Just s, s)
-put newSt = PadsParseState $ \_ -> (Just (), newSt)
+state f = PadsParseState $ \s -> let (x, s') = f s in (ForceM x, s')
+get = PadsParseState $ \s -> (ForceM s, s)
+put newSt = PadsParseState $ \_ -> (ForceM (), newSt)
 
 -- do { res <- parseRes
 --    ; let ps = forceFun res
@@ -92,6 +99,8 @@ put newSt = PadsParseState $ \_ -> (Just (), newSt)
 -- and a_md is the metadata type for the parse.
 -- then I need to add some state into the PadsParser monad itself.
 
+data Force a = Force a
+             | Defer
 
 -- | A pads skin tells PADS which values to force during
 --   parsing. One can be declared like
@@ -99,9 +108,9 @@ put newSt = PadsParseState $ \_ -> (Just (), newSt)
 --   or just with
 --   `skin SkinName = <pattern>`
 --   if you don't want to apply the skin to a type just yet
-data PadsSkinPat = PSBind Exp -- ^ bind a function of type `a -> m a` to
-                              --   the match cite, where a is the type that gets
-                              --   parsed and m is the monad.
+data PadsSkinPat = PSBind Exp -- ^ bind a function of type `a s -> (Force a, s)`
+                              -- to the match cite, where a is the type that gets
+                              -- parsed and s is the fold state.
 
                  -- TODO: delete
                  | PSForce -- ^ Force the type. Terminal.
@@ -115,6 +124,18 @@ data PadsSkinPat = PSBind Exp -- ^ bind a function of type `a -> m a` to
                  -- | A reference to a previously defined skin
                  | PSSkin QString
    deriving (Eq, Data, Typeable, Show)
+
+-- | the expression to force a result
+force :: Exp
+force = LamE [VarP x, VarP s] $ (TupE [AppE (ConE 'Force) (VarE x),VarE s])
+  where x = mkName "x"
+        s = mkName "s"
+-- | the expression to defer a result
+defer :: Exp
+defer = LamE [VarP x, VarP s] $ (TupE [ConE 'Defer,VarE s])
+  where x = mkName "x"
+        s = mkName "s"
+
 
 
 data PadsTy = PConstrain Pat PadsTy Exp

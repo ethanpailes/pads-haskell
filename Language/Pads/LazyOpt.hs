@@ -49,7 +49,7 @@ instance Show SkipStrategy where
 -- Pads Types
 --
 
--- | returns an expression of type (PadsTy, SkipStrategy)
+-- | computes the skip strategy for the given type
 ssPadsTy :: PadsTy -> Q (PadsTy, SkipStrategy)
 ssPadsTy ty@(PTycon [fixedPrim -> Just n]) = return (ty, (SSFixed n))
 ssPadsTy ty@(PTycon tc) =

@@ -10,6 +10,7 @@ import Language.Pads.Parser
 import Language.Pads.Pretty()
 import PropTesting()
 import qualified Text.Parsec.Prim as P
+import Language.Haskell.TH
 
 import qualified Text.PrettyPrint.Mainland as PP
 
@@ -30,6 +31,17 @@ test = do
     , labeledAssert "parse_naked_defer"
        (testParse "skin Foo for Baz = defer"
         ==Right [PadsDeclSkin "Foo" (Just "Baz") PSDefer])
+    , labeledAssert "parse_naked_defer"
+       (testParse "skin Foo for Baz = defer"
+        ==Right [PadsDeclSkin "Foo" (Just "Baz") PSDefer])
+    , let x = mkName "x"
+          s = mkName "s"
+          force = mkName "Force"
+       in labeledAssert "parse_naked_user_blob"
+        (testParse "skin Foo = <| \\x s -> (Force x, s) |>"
+        ==Right [PadsDeclSkin "Foo" Nothing
+                 (PSBind (LamE [VarP x,VarP s]
+                          (TupE [AppE (ConE force) (VarE x),VarE s])))])
 
     , labeledAssert "parse_naked_defer_parens"
        (testParse "skin Foo for Baz = ((defer))"

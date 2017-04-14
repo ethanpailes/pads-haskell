@@ -34,16 +34,17 @@ fixedTestData l ty p = do
   return . TestLabel l . TestCase . assert . p $ res
 
 
-chkP :: String -> (String -> (a,String)) -> (a -> Bool) -> String -> IO Test
-chkP label parser pred source =
+chkP :: String -> b -> (String -> b -> (a, String))
+     -> (a -> Bool) -> String -> IO Test
+chkP label initSt parser pred source =
   return . TestLabel label . TestCase . assert . pred
-  . fst . parser $ source
+  . fst . parser source $ initSt
 
-eqSkipped :: (Eq a, PadsMD meta) => a -> (a, meta) -> Bool
-eqSkipped x (x1, meta) = x == x1 && (skipped . get_md_header) meta
+eqSkipped :: (Eq a, PadsMD meta) => a -> (a, meta, st) -> Bool
+eqSkipped x (x1, meta, st) = x == x1 && (skipped . get_md_header) meta
 
-eqForced :: (Eq a, PadsMD meta) => a -> (a, meta) -> Bool
-eqForced x (x1, meta) = x == x1 && (not . skipped . get_md_header) meta
+eqForced :: (Eq a, PadsMD meta) => a -> (a, meta, st) -> Bool
+eqForced x (x1, meta, st) = x == x1 && (not . skipped . get_md_header) meta
 
 --
 -- test values
@@ -114,16 +115,16 @@ twoBranchDifferentWidth = r
      skin ForceInt for IntAlias = force
      skin DeferInt for IntAlias = defer
 
-     -- tuple test
-     type TupleFWPrefix = (Digit, ' ', Int)
-     skin DeferTupleFWPrefix for TupleFWPrefix = defer
-     skin ForceTupleFWPrefix for TupleFWPrefix = force
-     skin DeferPrefixTupleFWPrefix for TupleFWPrefix =
-         (defer, defer, force)
+     -- -- tuple test
+     -- type TupleFWPrefix = (Digit, ' ', Int)
+     -- skin DeferTupleFWPrefix for TupleFWPrefix = defer
+     -- skin ForceTupleFWPrefix for TupleFWPrefix = force
+     -- skin DeferPrefixTupleFWPrefix for TupleFWPrefix =
+     --     (defer, defer, force)
 |]
-intTyAssert = [intAlias_parseM, forceInt_parseM, deferInt_parseM]
-tupleFWPrefixTyAssert = [ tupleFWPrefix_parseM
-                        , deferTupleFWPrefix_parseM
-                        , forceTupleFWPrefix_parseM
-                        , deferPrefixTupleFWPrefix_parseM
-                        ]
+-- intTyAssert = [intAlias_parseM, forceInt_parseM, deferInt_parseM]
+-- tupleFWPrefixTyAssert = [ tupleFWPrefix_parseM
+--                         , deferTupleFWPrefix_parseM
+--                         , forceTupleFWPrefix_parseM
+--                         , deferPrefixTupleFWPrefix_parseM
+--                         ]
