@@ -99,8 +99,8 @@ put newSt = PadsParseState $ \_ -> (ForceM (), newSt)
 -- and a_md is the metadata type for the parse.
 -- then I need to add some state into the PadsParser monad itself.
 
-data Force a = Force a
-             | Defer
+data Keep a = Keep a
+            | Discard
 
 -- | A pads skin tells PADS which values to force during
 --   parsing. One can be declared like
@@ -127,16 +127,9 @@ data PadsSkinPat = PSBind Exp -- ^ bind a function of type `a s -> (Force a, s)`
 
 -- | the expression to force a result
 force :: Exp
-force = LamE [VarP x, VarP s] $ (TupE [AppE (ConE 'Force) (VarE x),VarE s])
+force = LamE [VarP x, VarP s] $ (TupE [AppE (ConE 'Keep) (VarE x),VarE s])
   where x = mkName "x"
         s = mkName "s"
--- | the expression to defer a result
-defer :: Exp
-defer = LamE [VarP x, VarP s] $ (TupE [ConE 'Defer,VarE s])
-  where x = mkName "x"
-        s = mkName "s"
-
-
 
 data PadsTy = PConstrain Pat PadsTy Exp
             | PTransform PadsTy PadsTy Exp

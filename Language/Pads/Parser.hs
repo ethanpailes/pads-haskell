@@ -141,7 +141,7 @@ parseSkinPat = do
 parseSkinPat' :: Parser PadsSkinPat
 parseSkinPat' = (haskellExp >>= return . PSBind)
             <|> ((reserved "force" >> return (PSBind force))
-            <|> (reserved "defer" >> return (PSBind defer))
+            <|> (reserved "defer" >> return PSDefer)
             -- the constructor is factored out to avoid backtracking
             <|> PSTupleP <$> parens (parseSkinPat `sepBy` reservedOp ",")
             <|> (qname >>= \con -> (parsePSRec con <|> parsePSCon con))

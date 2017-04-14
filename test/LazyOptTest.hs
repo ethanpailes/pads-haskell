@@ -55,10 +55,11 @@ test =
 
     , chkP "forceInt" 0 forceInt_parseFoldS (eqForced 19) "19"
     , chkP "deferInt" 0 deferInt_parseFoldS (eqSkipped 0) "19"
-    -- , chkP "forceTupFWPrefix"
-    --        forceTupleFWPrefix_parseS (eqForced (4,58)) "4 58"
-    -- , chkP "deferTupFWPrefix"
-    --        deferTupleFWPrefix_parseS (eqSkipped (0,0)) "4 58"
-    -- , chkP "deferPrefixTupFWPrefix"
-    --        deferPrefixTupleFWPrefix_parseS ((==(0,58)) . fst) "4 58"
+    , chkP "forceTupFWPrefix" 0
+           forceTupleFWPrefix_parseFoldS (eqForced (4,58)) "4 58"
+    , chkP "deferTupFWPrefix" 0
+           deferTupleFWPrefix_parseFoldS (eqSkipped (0,0)) "4 58"
+    , chkP "deferPrefixTupFWPrefix" 0
+           deferPrefixTupleFWPrefix_parseFoldS
+           ((==(0,58)) . (\(x,_,_) -> x)) "4 58"
     ]) >>= runTestTT

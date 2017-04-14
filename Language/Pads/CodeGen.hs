@@ -986,7 +986,7 @@ appE4 f x y z w = AppE (AppE (AppE (AppE f x) y) z) w
 
 
 genLazyParserDecls :: [PadsDecl] -> Q [Dec]
-genLazyParserDecls ds = trace "genLazyParserDecs" $ do
+genLazyParserDecls ds = do
   mapM_ recTys ds
   genSkinInstantiation [([s], (:[]) <$> t, p) | (PadsDeclSkin s t p) <- ds]
     where recTys (PadsDeclType n _ _ ty) = pcgPutTy [n] ty
@@ -1003,8 +1003,7 @@ genLazyParserDecls ds = trace "genLazyParserDecs" $ do
 --   parser of type `st -> PadsParser (tgt, tgt_metadata, st)`
 genSkinInstantiation :: [(QString, Maybe QString, PadsSkinPat)]
                      -> Q [Dec]
-genSkinInstantiation skinDecls =
-  trace ("genSkinInstantiation skinDecls=" ++ show skinDecls) $ do
+genSkinInstantiation skinDecls = do
   chk <- typeCheck [ (ty, pat) | (_, Just ty, pat) <- skinDecls ]
   case chk of
     Left err -> fail $ show err
@@ -1044,43 +1043,58 @@ genSkinParser tyName fullPattern = do
   fullType <- pcgGetTy tyName
   gen fullType fullPattern
   where
+
     gen ty (PSBind userFoldFunction) = [| \st -> do
           (x, x_md) <- $(genParseTy ty)
-          case ( $(return userFoldFunction) ) x st of
-            (Force val, st') -> return (val, x_md, st')
-            (Defer, st') ->
-              return (def, def_md `modifyMdHeader` (\h -> h {skipped = True}), st')
-                                where (def, def_md) = $(defaultPair ty)
+          case ($(return userFoldFunction) x st) of
+            (Keep val, st') -> return (val, x_md, st')
+            (Discard, st') -> return (def, skippedMd def_md, st')
+                where (def, def_md) = $(defaultPair ty)
       |]
 
-    -- gen ty PSDefer = do
-    --   annotatedTy <- ssPadsTy ty
-    --   let skippedDef =
-    --         [| (\(v, md) -> (v, md `modifyMdHeader`
-    --                                (\h -> h {skipped = True}) ))
-    --                 $(defaultPair ty) |]
-    --   [| $(skipParser annotatedTy) >> return $skippedDef |]
+    gen ty PSDefer = do
+      annotatedTy <- ssPadsTy ty
+      [| \st -> do
+            $(skipParser annotatedTy)
+            let (v, md) = $(defaultPair ty)
+            return (v, skippedMd md, st)
+       |]
 
-    -- gen (PTuple tys) (PSTupleP pats) = do
-    --   parsers <- mapM (\(t, p) -> gen t p) (zip tys pats)
-    --   resVars <- mapM (\_ -> newName "res") parsers
-    --   mdVars <- mapM (\_ -> newName "md") parsers
-    --   let tupPat res md = TupP [VarP res, VarP md]
-    --       parserStmts = map (\(r, m, p) -> BindS (tupPat r m) p)
-    --                         (zip3 resVars mdVars parsers)
-    --       resVal = TupE . map VarE . map snd
-    --         . filter (\(ty,_) -> mkRepTy ty /= ConT ''() )
-    --         $ (zip tys resVars) -- actual result
-    --   resMd <- [| (mergeBaseMDs $(return . ListE . map VarE $ mdVars),
-    --                $(return . TupE . map VarE $ mdVars)
-    --                )|]
-    --   let res = NoBindS $ (VarE 'return) `AppE` TupE [resVal, resMd]
-    --   return . DoE $ parserStmts ++ [res]
+    gen (PTuple tys) (PSTupleP pats) = do
+      initSt <- newName "initSt"
+      parsers <- mapM (\(t, p) -> gen t p) (zip tys pats)
+      resVars <- mapM (\_ -> newName "res") parsers
+      mdVars <- mapM (\_ -> newName "md") parsers
+      stVars <- mapM (\_ -> newName "st") parsers
+      let
+          -- The connections between the state variables. The
+          -- previous state is the first element of each pair, and
+          -- the next state is the second element
+          stArrows = zip (initSt:stVars) stVars
+
+          tupPat res md st = TupP [VarP res, VarP md, VarP st]
+          parserStmts =
+            map (\(r, m, (prevSt, tgtSt), p) ->
+                   BindS (tupPat r m tgtSt) (p `AppE` VarE prevSt))
+              (List.zip4 resVars mdVars stArrows parsers)
+
+          resVal = TupE . map VarE . map snd
+            . filter (\(ty,_) -> mkRepTy ty /= ConT ''() )
+            $ zip tys resVars -- actual result
+          resSt = VarE . head . reverse $ stVars
+      resMd <- [| (mergeBaseMDs $(return . ListE . map VarE $ mdVars),
+                   $(return . TupE . map VarE $ mdVars)
+                   )|]
+      let res = NoBindS $ (VarE 'return) `AppE` TupE [resVal, resMd, resSt]
+      return $ LamE [VarP initSt] (DoE $ parserStmts ++ [res])
 
 
     gen ty pat =
       fail $ "=== PADS:CodeGen.hs:genSkinParser:gen:>:unimplimented ===\n"
              ++ "ty=" ++ show ty ++ "\npat=" ++ show pat ++ "\n\n"
+
+skippedMd :: PadsMD md => md -> md
+skippedMd md = md `modifyMdHeader` (\h -> h { skipped = True })
 
 --
 -- Lazy Accessor Code Gen Utilities

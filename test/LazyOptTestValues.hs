@@ -116,11 +116,11 @@ twoBranchDifferentWidth = r
      skin DeferInt for IntAlias = defer
 
      -- -- tuple test
-     -- type TupleFWPrefix = (Digit, ' ', Int)
-     -- skin DeferTupleFWPrefix for TupleFWPrefix = defer
-     -- skin ForceTupleFWPrefix for TupleFWPrefix = force
-     -- skin DeferPrefixTupleFWPrefix for TupleFWPrefix =
-     --     (defer, defer, force)
+     type TupleFWPrefix = (Digit, ' ', Int)
+     skin DeferTupleFWPrefix for TupleFWPrefix = defer
+     skin ForceTupleFWPrefix for TupleFWPrefix = force
+     skin DeferPrefixTupleFWPrefix for TupleFWPrefix =
+         (defer, defer, force)
 |]
 -- intTyAssert = [intAlias_parseM, forceInt_parseM, deferInt_parseM]
 -- tupleFWPrefixTyAssert = [ tupleFWPrefix_parseM
