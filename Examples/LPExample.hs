@@ -241,6 +241,28 @@ getErrorsDirect logFile = do
 --       (defer, <| \i s -> (Keep i, s + i) |>)
 -- |]
 
+-- the generated code for use in the monadic interface.
+countInts_parseFoldM ::
+  Int -> PadsParser ((StringFW, Int), (Base_md, (Base_md, Base_md)), Int)
+countInts_parseFoldM st0 = do
+  -- skip the string prefix
+  (stringfw_parse, stringfw_parse_md) <- stringFW_parseM 20
+  let (stringfw, stringfw_md, st1) =
+        case runPadsState ((const defer') stringfw_parse) st0 of
+          (ForceM parseResult, st') -> (parseResult, stringfw_parse_md, st')
+          (DeferM _, st') -> ("", mempty, st')
+
+  -- parse the int and pass it in to the user-provided function
+  (int_parse, int_parse_md) <- int_parseM
+  let userBlob :: Int -> PadsParseState Int Int
+      userBlob = \i -> get >>= \count -> put (i + count) >> force' i
+      (int, int_md, st2) =
+        case runPadsState (userBlob int_parse) st1 of
+          (ForceM parseResult, st') -> (parseResult, int_parse_md, st')
+          (DeferM _, st') -> (0, mempty, st')
+
+  return ((stringfw, int), (mempty, (stringfw_md, int_md)), st2)
+
 data Force a = Force a
              | Defer
 -- the generated code for the raw function case. Not using the monadic interface.
@@ -248,13 +270,16 @@ countInts_parseFoldM' ::
   Int -> PadsParser ((StringFW, Int), (Base_md, (Base_md, Base_md)), Int)
 countInts_parseFoldM' st0 = do
   -- skip the string prefix
-  primPads $ \s -> ((), (snd . S.takeBytes 10) s)
-  let (stringfw, stringfw_md) = ("", mempty)
+  (stringfw_parse, stringfw_parse_md) <- stringFW_parseM 20
+  let (stringfw, stringfw_md, st1) =
+        case (\_ s -> (Defer, s)) stringfw_parse st0 of
+          (Force parseResult, st') -> (parseResult, stringfw_parse_md, st')
+          (Defer, st') -> ("", mempty, st')
 
   -- parse the int and pass it in to the user-provided function
   (int_parse, int_parse_md) <- int_parseM
   let (int, int_md, st2) =
-        case (\(i,s) -> (Force i, s + i)) (int_parse, st0) of
+        case (\i s -> (Force i, s + i)) int_parse st1 of
           (Force parseResult, st') -> (parseResult, int_parse_md, st')
           (Defer, st') -> (0, mempty, st')
 
@@ -275,24 +300,6 @@ countInts_parseFoldM'' st0 = do
 
   return ((stringfw, int), (mempty, (stringfw_md, int_md)), st2)
 
--- the generated code for use in the monadic interface.
-countInts_parseFoldM ::
-  Int -> PadsParser ((StringFW, Int), (Base_md, (Base_md, Base_md)), Int)
-countInts_parseFoldM st0 = do
-  -- skip the string prefix
-  primPads $ \s -> ((), (snd . S.takeBytes 10) s)
-  let (stringfw, stringfw_md) = ("", mempty)
-
-  -- parse the int and pass it in to the user-provided function
-  (int_parse, int_parse_md) <- int_parseM
-  let userBlob :: Int -> PadsParseState Int Int
-      userBlob = \i -> get >>= \count -> put (i + count) >> force' i
-      (int, int_md, st2) =
-        case runPadsState (userBlob int_parse) st0 of
-          (ForceM parseResult, st') -> (parseResult, int_parse_md, st')
-          (DeferM _, st') -> (0, mempty, st')
-
-  return ((stringfw, int), (mempty, (stringfw_md, int_md)), st2)
 
 
 
