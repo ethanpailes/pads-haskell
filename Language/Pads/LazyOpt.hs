@@ -244,6 +244,7 @@ type Env a = Map.Map QString a
 
 data PadsCGM = PadsCGM {
       pcg_typeEnv :: Env PadsTy
+    , pcg_typeDeclEnv :: Env PadsDecl
     , pcg_skinEnv :: Env PadsSkinPat
     }
   deriving(Eq, Show)
@@ -260,6 +261,7 @@ padsCodeGenEnv =
     pcg_typeEnv =
        Map.fromList (map (\bt -> (bt, PTycon bt)) coreBaseTypes)
   , pcg_skinEnv = Map.empty
+  , pcg_typeDeclEnv = Map.empty
   }
 
 -- | Add a skip strategy annotation to the pads codegen environment
@@ -276,6 +278,23 @@ pcgGetTy :: QString -> Q PadsTy
 pcgGetTy name = do
   env <- qRunIO $ readIORef padsCodeGenEnv
   case name `Map.lookup` (pcg_typeEnv env) of
+    (Just ss) -> return ss
+    Nothing -> fail $ "Type: " ++ qName name ++ " is not defined!"
+
+-- | Add a skip strategy annotation to the pads codegen environment
+pcgPutTyDecl :: QString -> PadsDecl -> Q ()
+pcgPutTyDecl name dec =
+  qRunIO $ modifyIORef padsCodeGenEnv
+     (\pcgm -> pcgm {
+         pcg_typeDeclEnv = Map.insert name dec (pcg_typeDeclEnv pcgm)
+     })
+
+-- | Looks up a given skip strategy in the pads codegen environment.
+--     Makes use of the MonadFail instance if one is not defined.
+pcgGetTyDecl :: QString -> Q PadsDecl
+pcgGetTyDecl name = do
+  env <- qRunIO $ readIORef padsCodeGenEnv
+  case name `Map.lookup` (pcg_typeDeclEnv env) of
     (Just ss) -> return ss
     Nothing -> fail $ "Type: " ++ qName name ++ " is not defined!"
 
@@ -301,6 +320,12 @@ pcgGetSkinEnv :: Q (Env PadsSkinPat)
 pcgGetSkinEnv = do
   env <- qRunIO $ readIORef padsCodeGenEnv
   return $ pcg_skinEnv env
+
+-- | get the skin env
+pcgGetTypeDeclEnv :: Q (Env PadsDecl)
+pcgGetTypeDeclEnv = do
+  env <- qRunIO $ readIORef padsCodeGenEnv
+  return $ pcg_typeDeclEnv env
 
 -- | get the ty env
 pcgGetTyEnv :: Q (Env PadsTy)

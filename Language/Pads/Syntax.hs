@@ -1,6 +1,6 @@
 {-# LANGUAGE DeriveDataTypeable, MultiParamTypeClasses,
     TypeSynonymInstances, FlexibleInstances, TemplateHaskell,
-    FlexibleContexts #-}
+    FlexibleContexts, ViewPatterns #-}
 
 {-
 ** *********************************************************************
@@ -142,6 +142,34 @@ data PadsTy = PConstrain Pat PadsTy Exp
             | PTycon QString
             | PTyvar String
    deriving (Eq, Data, Typeable, Show)
+
+
+-- | replace a type variable with a given type
+replaceTyVar :: String -- ^ the ty var to replace
+             -> PadsTy -- ^ the type to replace it with
+             -> PadsTy -- ^ the source type
+             -> PadsTy
+replaceTyVar a ty' (PTyvar x) | a == x = ty'
+replaceTyVar _ _ (PTyvar x) = (PTyvar x)
+replaceTyVar a ty' (PConstrain pat (replaceTyVar a ty' -> ty) exp) =
+  PConstrain pat ty exp
+replaceTyVar a ty' (PTransform (replaceTyVar a ty' -> ty1)
+                               (replaceTyVar a ty' -> ty2) exp) =
+  PTransform ty1 ty2 exp
+replaceTyVar a ty' (PList (replaceTyVar a ty' -> ty1)
+                          (liftM (replaceTyVar a ty') -> ty2) termCond) =
+  PList ty1 ty2 termCond
+replaceTyVar a ty' (PPartition (replaceTyVar a ty' -> ty) exp) =
+  PPartition ty exp
+replaceTyVar a ty' (PValue exp (replaceTyVar a ty' -> ty)) =
+  PValue exp ty
+replaceTyVar a ty' (PApp (map (replaceTyVar a ty') -> tys) exp) =
+  PApp tys exp
+replaceTyVar a ty' (PTuple (map (replaceTyVar a ty') -> tys)) =
+  PTuple tys
+replaceTyVar a ty' (PExpression exp) = PExpression exp
+replaceTyVar a ty' (PTycon con) = PTycon con
+
 
 data TermCond = LTerm PadsTy
               | LLen Exp

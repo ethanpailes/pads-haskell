@@ -25,6 +25,9 @@ import Language.Pads.LazyOpt ( pcgGetSkinEnv
                              , pcgGetTy, pcgPutTy
                              , pcgGetTyEnv
                              , ssPadsTy
+                             , pcgPutTyDecl
+                             , pcgGetTyDecl
+                             , pcgGetTypeDeclEnv
                              )
 import qualified Language.Pads.Errors as E
 import qualified Language.Pads.Source as S
@@ -989,7 +992,8 @@ genLazyParserDecls :: [PadsDecl] -> Q [Dec]
 genLazyParserDecls ds = do
   mapM_ recTys ds
   genSkinInstantiation [([s], (:[]) <$> t, p) | (PadsDeclSkin s t p) <- ds]
-    where recTys (PadsDeclType n _ _ ty) = pcgPutTy [n] ty
+    where recTys tyDec@(PadsDeclType n _ _ ty) =
+            pcgPutTy [n] ty >> pcgPutTyDecl [n] tyDec
           recTys _ = return ()
 
 -- | expects to be called for every pads block containing skins.
@@ -1146,7 +1150,10 @@ genSkipFunTy ty = [| \source -> fst ( $(genParseTy ty) # source) |]
 data TypeError = PatternMatchTypeError PadsTy PadsSkinPat
                | SkinNotFound QString
                | TypeNotFound QString
+               | KindError PadsTy [PadsTy]
+               | BadTypeApplication PadsTy
                | Unimplimented PadsTy PadsSkinPat
+               | PadsBug String
   deriving(Eq, Show)
 
 
@@ -1159,8 +1166,9 @@ typeCheck pairs = do
           Nothing -> Left $ TypeNotFound name
       couldBeTypes = mapM (\(t, p) -> lookupTy t p tyEnv) pairs
   skinEnv <- pcgGetSkinEnv
+  tyDecEnv <- pcgGetTypeDeclEnv
   return $ couldBeTypes >>= \tys ->
-    mapM_ (\(t, p) -> tyChk tyEnv skinEnv t p) tys
+    mapM_ (\(t, p) -> tyChk tyEnv skinEnv tyDecEnv t p) tys
 
 --
 -- It would be real nice to be able to come up with some way to
@@ -1168,16 +1176,17 @@ typeCheck pairs = do
 -- the environment closure from scratch each time.
 --
 
-tyChk :: Env PadsTy -> Env PadsSkinPat
+tyChk :: Env PadsTy -> Env PadsSkinPat -> Env PadsDecl
       -> PadsTy
       -> PadsSkinPat
       -> Either TypeError ()
-tyChk types skins = chk
+tyChk types skins typeDecs = chk
   where
+    chk :: PadsTy -> PadsSkinPat -> Either TypeError ()
     -- terminal, we let haskell check the generated code for us
     chk _ (PSBind _) = Right ()
     chk _ PSForce = Right () -- terminal TODO: delete
-    chk _ PSDefer = Right () -- terminal TODO: delete
+    chk _ PSDefer = Right ()
     chk (PTuple ts) (PSTupleP pats) =
       mapM_ (\(ty, p) -> chk ty p) (zip ts pats)
     chk (PApp (PTycon con:args) _) (PSConP conPat argsP)
@@ -1194,6 +1203,25 @@ tyChk types skins = chk
       case tyName `Map.lookup` types of
         (Just t) -> chk t pat
         _ -> Left $ TypeNotFound tyName
+
+    chk ty@(PApp tys _) pat = do
+      (tyCon, tyArgs) <- case tys of
+          (PTycon con):args -> Right (con, args)
+          [_] -> Left $ BadTypeApplication ty
+          [ ] -> Left $ BadTypeApplication ty
+
+      case tyCon `Map.lookup` typeDecs of
+        Just (PadsDeclType _ vars _ body) ->
+          if (length vars) /= (length tyArgs)
+             then Left $ KindError (PTycon tyCon) tyArgs
+          else chk resolvedType pat
+            where resolvedType =
+                    foldl
+                      (\tySchema (var, tyArg) -> replaceTyVar var tyArg tySchema)
+                      body (zip vars tyArgs)
+        Just _ -> Left $ PadsBug "tyChk:chk"
+        Nothing -> Left $ TypeNotFound tyCon
+
     chk ty pat = Left $ PatternMatchTypeError ty pat
 
 

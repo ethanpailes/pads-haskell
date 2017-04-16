@@ -121,6 +121,10 @@ twoBranchDifferentWidth = r
      skin ForceTupleFWPrefix for TupleFWPrefix = force
      skin DeferPrefixTupleFWPrefix for TupleFWPrefix =
          (defer, defer, force)
+
+     type Tagged a = (Int, ':', a)
+     type TaggedString = Tagged (StringFW 10)
+     skin ForceTag for TaggedString = (force, defer, defer)
 |]
 -- intTyAssert = [intAlias_parseM, forceInt_parseM, deferInt_parseM]
 -- tupleFWPrefixTyAssert = [ tupleFWPrefix_parseM
