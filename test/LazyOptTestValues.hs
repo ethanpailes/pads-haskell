@@ -125,6 +125,7 @@ twoBranchDifferentWidth = r
      type Tagged a = (Int, ':', a)
      type TaggedString = Tagged (StringFW 10)
      skin ForceTag for TaggedString = (force, defer, defer)
+     skin ForceBody for TaggedString = (force, defer, force)
 |]
 -- intTyAssert = [intAlias_parseM, forceInt_parseM, deferInt_parseM]
 -- tupleFWPrefixTyAssert = [ tupleFWPrefix_parseM

@@ -1093,6 +1093,20 @@ genSkinParser tyName fullPattern = do
       return $ LamE [VarP initSt] (DoE $ parserStmts ++ [res])
 
 
+    gen (PApp tys _) pat = do
+      (con, args) <- case tys of
+        (PTycon con):tyArgs -> return (con, tyArgs)
+        _ -> fail "PADS:CodeGen.hs:genSkinParser:gen:>: bug in type checker"
+
+      tyDec <- pcgGetTyDecl con
+      (vars, body) <- case tyDec of
+        PadsDeclType _ vars _ body -> return (vars, body)
+        _ -> fail "PADS:CodeGen.hs:genSkinParser:gen:>: bug in type checker"
+      let resolvedType = foldl (\tySchema (var, tyArg) -> replaceTyVar var tyArg tySchema)
+                            body (zip vars args)
+
+      gen resolvedType pat
+
     gen ty pat =
       fail $ "=== PADS:CodeGen.hs:genSkinParser:gen:>:unimplimented ===\n"
              ++ "ty=" ++ show ty ++ "\npat=" ++ show pat ++ "\n\n"
