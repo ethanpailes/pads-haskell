@@ -307,15 +307,23 @@ countInts_parseFoldM'' st0 = do
 
 
 
-map_CountInts_parseM ::
-  PadsParser (SimpleLog, (Base_md, SimpleLog_imd))
-map_CountInts_parseM = undefined
--- skipServer_ServerPrefixedLogEntry_parseM
---   :: PadsParser ((StringFW, LogEntry), (Base_md, (Base_md, (Base_md, LogEntry_imd))))
--- skipServer_ServerPrefixedLogEntry_parseM = do
---   -- skip the prefix
---   primPads $ \s -> ((), (snd . S.takeBytes 10) s)
---   undefined
+map_CountInts_parseFoldM'' ::
+  Int -> PadsParser (SimpleLog, (Base_md, SimpleLog_imd), Int)
+map_CountInts_parseFoldM'' s0 = do
+  isEOR <- isEORP
+  if isEOR
+    then return (SimpleLog [], (mempty, SimpleLog_imd (mempty, [])), s0)
+  else do
+    (le, sle_md@(le_md_head, le_md), le_st) <- countInts_parseFoldM'' s0
+
+    -- If we are at an EOR, skip it
+
+    (SimpleLog rest, (rest_md_hd, SimpleLog_imd (sl_md_hd, sl_md_list)), rest_st) <- map_CountInts_parseFoldM'' le_st
+
+    return (SimpleLog (le:rest)
+           , (le_md_head <> rest_md_hd,
+                SimpleLog_imd (sl_md_hd, sle_md:sl_md_list))
+           , rest_st)
 
 
 
@@ -343,16 +351,18 @@ map_CountInts_parseM = undefined
 --                 , <| \(i, s) -> (Disgard, s + (fromIntegral i)) |>)
 -- |]
 --
--- If you want different state variables (implimented as fields in a record), you can
--- give them labels. I changed the syntax for embedding a haskell expression in this
--- case to have a back arrow <-| to try to make it clear that you are mutating the
--- given field in the state record. In the case were you only want one state variable,
--- PADS will not generate a record to wrap it, and you don't have to provide any labels
--- (making this backwards compatable with the code above).
+-- If you want different state variables (implimented as fields in a record),
+-- you can give them labels. I changed the syntax for embedding a haskell
+-- expression in this case to have a back arrow <-| to try to make it clear
+-- that you are mutating the given field in the state record. In the case
+-- were you only want one state variable, PADS will not generate a record
+-- to wrap it, and you don't have to provide any labels (making this
+-- backwards compatable with the code above).
 --
 
 data SumIntsMaxDoublesState = SumIntsMaxDoublesState {
-    -- will we need explicit type annotations for this? I'm not sure how to infer these types in general.
+    -- will we need explicit type annotations for this? I'm not sure
+    -- how to infer these types in general.
     intSum :: Int
   , doubleMax :: Double
   }
