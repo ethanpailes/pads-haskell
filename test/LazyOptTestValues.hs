@@ -109,6 +109,13 @@ twoBranchDifferentWidth = r
                       "data D = D { foo :: StringFW 90, ' ', baz :: StringFW 13 }\
                       \       | B { 'xyz', bar :: StringFW 15 }"
 
+data FoldRecord = FoldRecord {
+    _fst :: Int
+  , _snd :: Int
+  , _thrd :: Int
+  }
+
+
 [pads|
      -- Basic `force` and `defer` test
      type IntAlias = Int
@@ -121,12 +128,37 @@ twoBranchDifferentWidth = r
      skin ForceTupleFWPrefix for TupleFWPrefix = force
      skin DeferPrefixTupleFWPrefix for TupleFWPrefix =
          (defer, defer, force)
+     -- DeferPrefixTupleFWPrefix @ TupleFWPrefix
+
+     type StringsAndInts = (StringFW 40, Int, StringFW 80, Int, StringFW 90, Int)
+
+     -- get one integer out
+     skin AddIt = <| \i s -> (Keep i, s + i) |>
+     skin SumAllInts for StringsAndInts =
+         (defer, AddIt, defer, AddIt, defer, AddIt)
+
+     skin SumOne = AddIt
+     skin SumSeperate for StringsAndInts =
+         ( defer, AddIt |> fst
+         , defer, <| \i (s1, s2, s3) -> (Keep i, (s1, s2 + i, s3))|>
+         , defer, <| \i (s1, s2, s3) -> (Keep i, (s1, s2, s3 + i))|>
+         )
+
+     -- skin SumBoth for TupleFWPrefix =
+     --     (<| \d (ds, is) -> (Keep d, (ds + d, is)) |>, defer, <| |>)
 
      type Tagged a = (Int, ':', a)
      type TaggedString = Tagged (StringFW 10)
      skin ForceTag for TaggedString = (force, defer, defer)
      skin ForceBody for TaggedString = (force, defer, force)
 |]
+
+--
+-- Design idea:
+--   - each force site is a member of an aggregation set
+--   - For each aggregation set the plus function as well as the zero value must be specified
+--
+
 -- intTyAssert = [intAlias_parseM, forceInt_parseM, deferInt_parseM]
 -- tupleFWPrefixTyAssert = [ tupleFWPrefix_parseM
 --                         , deferTupleFWPrefix_parseM

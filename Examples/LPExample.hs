@@ -7,7 +7,7 @@ import Language.Pads.Generic
 
 import Test.QuickCheck.Arbitrary
 import Test.QuickCheck.Gen
-import Test.QuickCheck
+import Test.QuickCheck hiding (Discard)
 import Text.PrettyPrint.Mainland as PP
 import System.IO (withFile, IOMode(WriteMode, ReadMode), hPutStrLn)
 import System.Random (newStdGen, randomR)
@@ -295,8 +295,12 @@ countInts_parseFoldM'' st0 = do
         ("", mempty `modifyMdHeader` (\h -> h { skipped = True }))
 
   -- parse the int and pass it in to the user-provided function
-  (int_parse, int_md) <- int_parseM
-  let (int, st2) = (\i s -> (i, s + i)) int_parse st0
+  (int_parse, int_md_init) <- int_parseM
+  let (int_res, st2) = (\i s -> (Keep i, s + i)) int_parse st0
+      (int, int_md) = case int_res of
+                          Keep i -> (i, int_md_init)
+                          Discard -> (0, int_md_init `modifyMdHeader` (\h -> h { skipped = True }))
+
 
   return ((stringfw, int), (mempty, (stringfw_md, int_md)), st2)
 
@@ -312,6 +316,102 @@ map_CountInts_parseM = undefined
 --   -- skip the prefix
 --   primPads $ \s -> ((), (snd . S.takeBytes 10) s)
 --   undefined
+
+
+
+--
+-- Parse aggregation sets. Do we want to provide the ability to have several
+-- different state variables? An example of what the surface syntax and the
+-- corresponding generated code might look like is below. (Using the Keep/Discard
+-- form from above).
+-- [pads|
+--   newtype BasicLog = BasicLog ([BasicLogEntry | EOR] terminator EOF)
+--   type BasicLogEntry = (StringFW 20, Int, ':', Double, ':', Int)
+--
+--   skin SumIntsMaxDoubles = ( defer
+--                            , intSum <-| \(i, s) -> (Discard, s + i) |>
+--                            , defer
+--                            , doubleMax <-| \(d, m) -> (Discard, if d > m then d else m) |>
+--                            , defer
+--                            , intSum <-| \(i, s) -> (Discard, s + i) |> )
+--
+--   skin SumAll = (defer
+--                 , <| \(i, s) -> (Disgard, s + (fromIntegral i)) |>
+--                 , defer
+--                 , <| \(d, s) -> (Disgard, d + s) |>
+--                 , defer
+--                 , <| \(i, s) -> (Disgard, s + (fromIntegral i)) |>)
+-- |]
+--
+-- If you want different state variables (implimented as fields in a record), you can
+-- give them labels. I changed the syntax for embedding a haskell expression in this
+-- case to have a back arrow <-| to try to make it clear that you are mutating the
+-- given field in the state record. In the case were you only want one state variable,
+-- PADS will not generate a record to wrap it, and you don't have to provide any labels
+-- (making this backwards compatable with the code above).
+--
+
+data SumIntsMaxDoublesState = SumIntsMaxDoublesState {
+    -- will we need explicit type annotations for this? I'm not sure how to infer these types in general.
+    intSum :: Int
+  , doubleMax :: Double
+  }
+sumIntsMaxDoubles_parseFoldM ::
+  SumIntsMaxDoublesState -> PadsParser ( (StringFW, Int, Double, Int)
+                                       , (Base_md, (Base_md, Base_md, Base_md, Base_md))
+                                       , SumIntsMaxDoublesState)
+sumIntsMaxDoubles_parseFoldM st0 = do
+  -- skip the string prefix
+  primPads $ \s -> ((), (snd . S.takeBytes 10) s)
+  let (stringfw, stringfw_md) =
+        ("", mempty `modifyMdHeader` (\h -> h { skipped = True }))
+      st1 = st0
+
+  -- parse the int and pass it in to the user-provided function, then modify the state field
+  (int1_parse, int1_md_init) <- int_parseM
+  let (int1_res, int1_st) = (\i s -> (Discard, s + i)) int1_parse (intSum st0)
+      (int1, int1_md) = case int1_res of
+                          Keep i -> (i, int1_md_init)
+                          Discard -> (0, int1_md_init `modifyMdHeader` (\h -> h { skipped = True }))
+      st2 = st1 { intSum = int1_st }
+
+  -- skip the colon
+  primPads $ \s -> ((), (snd . S.takeBytes 1) s)
+
+  -- parse the double and pass it in to the user-provided function, then modify the state field
+  (double_parse, double_md_init) <- double_parseM
+  let (double_res, double_st) = (\d m -> (Discard, if d > m then d else m)) double_parse (doubleMax st0)
+      (double, double_md) = case double_res of
+                          Keep i -> (i, double_md_init)
+                          Discard -> (0, double_md_init `modifyMdHeader` (\h -> h { skipped = True }))
+      st3 = st2 { doubleMax = double_st }
+
+  -- skip the colon
+  primPads $ \s -> ((), (snd . S.takeBytes 1) s)
+
+  -- parse the int and pass it in to the user-provided function, then modify the state field
+  (int2_parse, int2_md_init) <- int_parseM
+  let (int2_res, int2_st) = (\i s -> (Discard, s + i)) int2_parse (intSum st0)
+      (int2, int2_md) = case int2_res of
+                          Keep i -> (i, int2_md_init)
+                          Discard -> (0, int2_md_init `modifyMdHeader` (\h -> h { skipped = True }))
+      st4 = st3 { intSum = int2_st }
+
+  return ((stringfw, int1, double, int2), (mempty, (stringfw_md, int1_md, double_md, int2_md)), st4)
+
+--
+-- The generated code for SumAll would look just like the generated code for
+--
+
+--   skin SumAll = (defer
+--                 , <| \(i, s) -> (Disgard, s + (fromIntegral i)) |>
+--                 , defer
+--                 , <| \(d, s) -> (Disgard, d + s) |>
+--                 , defer
+--                 , <| \(i, s) -> (Disgard, s + (fromIntegral i)) |>)
+
+
+
 
 
 
