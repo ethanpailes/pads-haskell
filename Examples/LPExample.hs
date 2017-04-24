@@ -296,7 +296,7 @@ countInts_parseFoldM'' st0 = do
 
   -- parse the int and pass it in to the user-provided function
   (int_parse, int_md_init) <- int_parseM
-  let (int_res, st2) = (\i s -> (Keep i, s + i)) int_parse st0
+  let (int_res, st2) = (\i s -> (Discard, s + i)) int_parse st0
       (int, int_md) = case int_res of
                           Keep i -> (i, int_md_init)
                           Discard -> (0, int_md_init `modifyMdHeader` (\h -> h { skipped = True }))
@@ -304,6 +304,24 @@ countInts_parseFoldM'' st0 = do
 
   return ((stringfw, int), (mempty, (stringfw_md, int_md)), st2)
 
+--
+-- memory allocation benchmark
+genSimpleLog :: FilePath -> Int -> IO ()
+genSimpleLog file numLines = withFile file WriteMode mkFile
+    where mkFile handle = do
+            let addNLines 0 = return ()
+                addNLines linesLeft = do
+                  logStringChar <-
+                    generate (oneof . map return $ "abcdefghijklmnopq") :: IO Char
+                  logNum <- generate arbitrary :: IO Int
+                  let logEntry = (replicate 20 logStringChar) ++ show logNum
+                  hPutStrLn handle logEntry
+                  addNLines (linesLeft - 1)
+            addNLines numLines
+
+-- returns the summary statistic
+readSimpleLog :: FilePath -> IO Int
+readSimpleLog file = withFile file ReadMode \h -> undefined
 
 
 
@@ -320,7 +338,7 @@ map_CountInts_parseFoldM'' s0 = do
 
     (SimpleLog rest, (rest_md_hd, SimpleLog_imd (sl_md_hd, sl_md_list)), rest_st) <- map_CountInts_parseFoldM'' le_st
 
-    return (SimpleLog (le:rest)
+    return (SimpleLog (if skipped le_md_head then rest else le:rest)
            , (le_md_head <> rest_md_hd,
                 SimpleLog_imd (sl_md_hd, sle_md:sl_md_list))
            , rest_st)
@@ -344,11 +362,11 @@ map_CountInts_parseFoldM'' s0 = do
 --                            , intSum <-| \(i, s) -> (Discard, s + i) |> )
 --
 --   skin SumAll = (defer
---                 , <| \(i, s) -> (Disgard, s + (fromIntegral i)) |>
+--                 , <| \(i, s) -> (Discard, s + (fromIntegral i)) |>
 --                 , defer
---                 , <| \(d, s) -> (Disgard, d + s) |>
+--                 , <| \(d, s) -> (Discard, d + s) |>
 --                 , defer
---                 , <| \(i, s) -> (Disgard, s + (fromIntegral i)) |>)
+--                 , <| \(i, s) -> (Discard, s + (fromIntegral i)) |>)
 -- |]
 --
 -- If you want different state variables (implimented as fields in a record),
@@ -414,11 +432,11 @@ sumIntsMaxDoubles_parseFoldM st0 = do
 --
 
 --   skin SumAll = (defer
---                 , <| \(i, s) -> (Disgard, s + (fromIntegral i)) |>
+--                 , <| \(i, s) -> (Discard, s + (fromIntegral i)) |>
 --                 , defer
---                 , <| \(d, s) -> (Disgard, d + s) |>
+--                 , <| \(d, s) -> (Discard, d + s) |>
 --                 , defer
---                 , <| \(i, s) -> (Disgard, s + (fromIntegral i)) |>)
+--                 , <| \(i, s) -> (Discard, s + (fromIntegral i)) |>)
 
 
 
